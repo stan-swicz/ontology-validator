@@ -1,0 +1,78 @@
+# FIKSTURA: ontologia zapisana DOKŁADNIE tak, jak wypluwa ją biblioteka YAML.
+# Wygenerowana `yaml.safe_dump(..., sort_keys=False, width=100)` (PyYAML 6), nie pisana ręcznie —
+# bo chodzi o kształt, którego NIKT nie wybiera świadomie, a który dostajemy od ludzi:
+#   • lista na TYM SAMYM wcięciu co klucz (`objectTypes:` / `- apiName:`)
+#   • polskie znaki jako `\xF3` i `\u0142` (emiter domyślnie NIE pisze unicode)
+#   • długa wartość łamana co 100 znaków, z `\` na końcu linii (złamanie BEZ spacji)
+#   • `description: null` tam, gdzie wartości nie ma
+#   • klucz `'on'` w cudzysłowie — bo w YAML 1.1 goły `on` jest BOOLEANEM
+# Obok leży `.json` z tego samego pliku wczytany PyYAML-em: to jest wzorzec, z którym musi się
+# zgadzać nasz parser. ⚠ Nie edytuj żadnego z nich ręcznie — regenerować razem.
+
+ontology: sklep
+version: '0.1'
+objectTypes:
+- apiName: Order
+  displayName: "Zam\xF3wienie"
+  description: "Zam\xF3wienie klienta: od przyj\u0119cia do wydania. Opis jest d\u0142ugi celowo, \u017C\
+    eby emiter z\u0142ama\u0142 go na kilka linii i \u017Ceby by\u0142o wida\u0107, \u017Ce zwijanie nie\
+    \ gubi ani nie dok\u0142ada spacji."
+  primaryKey: orderId
+  titleProperty: orderNumber
+  status: active
+  visibility: prominent
+  properties:
+  - apiName: orderId
+    type: string
+    required: true
+    description: "Klucz zam\xF3wienia."
+  - apiName: orderNumber
+    type: string
+    required: true
+    description: "Numer, kt\xF3rym o zleceniu m\xF3wi handlowiec i hala. Tekst wystarczaj\u0105co d\u0142\
+      ugi, \u017Ceby emiter przeni\xF3s\u0142 go do nast\u0119pnej linii razem z polskimi znakami: \u0105\
+      \u0107\u0119\u0142\u0144\xF3\u015B\u017A\u017C."
+  - apiName: dueDate
+    type: timestamp
+    required: false
+    description: null
+- apiName: Task
+  displayName: Zadanie
+  description: Jedno wykonanie kroku na zasobie.
+  primaryKey: taskId
+  titleProperty: taskId
+  status: active
+  visibility: normal
+  properties:
+  - apiName: taskId
+    type: string
+    required: true
+    description: Klucz zadania.
+linkTypes:
+- apiName: tasks
+  from: Order
+  to: Task
+  cardinality: ONE_TO_MANY
+  reverseName: order
+  description: "Zadania zam\xF3wienia."
+  status: active
+actionTypes:
+- apiName: planOrder
+  displayName: "Zaplanuj zam\xF3wienie"
+  description: "Stawia zam\xF3wienie w planie."
+  status: active
+  revertible: true
+  parameters:
+  - apiName: order
+    type: reference
+    required: true
+    description: "Zam\xF3wienie."
+  rules:
+  - op: modify
+    target: Task.taskId
+    description: "Zapisuje przydzia\u0142."
+  submissionCriteria:
+  - id: order-present
+    'on': order
+    operator: not-null
+    message: "Bez zam\xF3wienia nie ma czego planowa\u0107."

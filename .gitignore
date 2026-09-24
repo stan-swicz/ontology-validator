@@ -1,0 +1,7 @@
+node_modules/
+# baza historii sprawdzeń przy uruchomieniu lokalnym
+dane/
+# adresy serwera — repo jest publiczne (wzór: deploy/deploy.env.example)
+deploy/deploy.env
+*.log
+.DS_Store

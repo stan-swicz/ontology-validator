@@ -1,0 +1,237 @@
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# SZABLON WEJŚCIA — valid.nueve.design
+#
+# Słownictwo jest CELOWO Palantirowe (`objectTypes`, `apiName`, `MANY_TO_ONE`), a nie nasze:
+# to są nazwy, które rozpoznasz z dokumentacji Foundry, a nie z cudzego repo.
+#
+# ⚠ WSZYSTKO POZA `objectTypes` JEST NIEOBOWIĄZKOWE. Grupa, której nie ma, NIE JEST karana —
+# walidator nie zgłasza braku czegoś, czego nie zadeklarowałeś, że masz. Karane jest dopiero
+# to, co jest zadeklarowane i niespójne.
+#
+# ⚠ POLE, KTÓREGO NIE ZNASZ, ZOSTAW PUSTE — nie zgaduj. Narzędzie łapie zgadywanki:
+# klucz wskazujący nieistniejące pole albo status wpisany „żeby było” kosztuje więcej
+# niż uczciwy brak.
+#
+# Przyjmowany jest też YAML i JSON w formacie manifestu `nueve` (grupa `objects`) —
+# rozpoznanie jest automatyczne, po nazwach grup.
+#
+# ⚠ FORMATOWANIE NIE MA ZNACZENIA — liczy się treść. Opis dłuższy niż linia możesz zapisać
+# blokiem (patrz `Schedulable` na dole tego pliku):
+#     description: >-
+#       pierwsze zdanie, które nie mieści się w jednej linii,
+#       i jego dalszy ciąg wcięty pod spodem
+# …albo po prostu złamać linię, w cudzysłowie lub bez. Lista wolno stać na tym samym wcięciu
+# co jej klucz. Plik przepuszczony przez bibliotekę YAML czyta się tak samo jak pisany ręcznie.
+# ══════════════════════════════════════════════════════════════════════════════════════════
+
+ontology: nazwa-twojej-ontologii
+version: "1.0"
+
+# ── TYPY OBIEKTÓW — jedyna grupa obowiązkowa ──────────────────────────────────────────────
+objectTypes:
+  - apiName: Order                    # nazwa w kodzie; rzeczownik w liczbie pojedynczej
+    displayName: Zlecenie             # nazwa dla użytkownika
+    pluralDisplayName: Zlecenia       # ⚠ OBOWIĄZKOWA tak samo jak poprzednia (docs:2083–2087)
+    description: Zamówienie klienta na wykonanie wyrobu, od przyjęcia do wydania.
+    primaryKey: orderId               # JEDNA właściwość — nie lista
+    titleProperty: orderNumber        # czym ten obiekt podpisuje się na ekranie
+    status: active                    # active | experimental | deprecated | example | promoted
+    visibility: prominent             # prominent | normal | hidden
+    implements: [Billable]            # interfejsy, które ten typ spełnia
+    properties:
+      - apiName: orderId
+        type: string                  # string|integer|long|double|decimal|boolean|date|timestamp|struct|array<T>
+        required: true
+        description: Klucz zlecenia nadawany przez ERP.
+        sharedPropertyType: ErpCode   # ⚠ TO jest referencja. `usedBy` niżej to tylko opis
+      - apiName: orderNumber
+        type: string
+        required: true
+        description: Numer, którym o zleceniu mówi handlowiec i hala.
+      - apiName: dueDate
+        type: date
+        required: true
+        description: Termin, na który zlecenie ma być gotowe.
+      - apiName: monetaryValue        # NIE `value` — nazwa ma mówić, czego dotyczy
+        type: decimal
+        required: false
+        description: Wartość zamówienia w walucie rozliczenia.
+        classification: restricted    # oznacz pola wrażliwe (ceny, dane osobowe, marże)
+      - apiName: taskCount
+        type: integer
+        description: Liczba zadań tego zlecenia.
+        derived:                      # wartość LICZONA — w Foundry tylko do odczytu
+          via: [tasks]                # łańcuch linków, do 3 skoków
+          aggregation: count          # count|sum|avg|min|max|collectList|collectSet
+      - apiName: plannerNote
+        type: string
+        description: Notatka planisty przy zleceniu.
+        editOnly: true                # pole bez kolumny w źródle — powstaje z gestu użytkownika
+
+  - apiName: Task
+    displayName: Zadanie
+    pluralDisplayName: Zadania
+    description: Jedno wykonanie kroku na konkretnym zasobie w konkretnym oknie czasu.
+    primaryKey: taskId
+    titleProperty: taskId
+    status: experimental
+    visibility: normal
+    implements: [Schedulable]
+    properties:
+      - apiName: taskId
+        type: string
+        required: true
+        description: Tożsamość bloku na osi.
+      - apiName: startTime
+        type: timestamp
+        required: true
+        description: Kiedy zadanie zaczyna zajmować zasób.
+      - apiName: endTime
+        type: timestamp
+        required: true
+        description: Kiedy zwalnia zasób.
+
+# ── LINKI ─────────────────────────────────────────────────────────────────────────────────
+linkTypes:
+  - apiName: tasks                    # nazwa czytana od strony `from`
+    from: Order
+    to: Task
+    cardinality: ONE_TO_MANY          # ONE_TO_ONE | ONE_TO_MANY | MANY_TO_ONE | MANY_TO_MANY
+    reverseName: order                # nazwa czytana od strony `to` — obie strony potrzebują nazwy
+    displayName: Zadania              # nazwa DLA UŻYTKOWNIKA strony prowadzącej do `to`
+    reverseDisplayName: Zlecenie      # ⚠ i osobna dla drugiej strony (docs:4161)
+    description: Zadania, na które rozpada się to zlecenie.
+    status: experimental
+
+# ── AKCJE — zmieniają stan modelu ─────────────────────────────────────────────────────────
+actionTypes:
+  - apiName: scheduleTask
+    displayName: Zaplanuj zadanie
+    description: Stawia zadanie na zasobie w konkretnym oknie czasu.
+    status: experimental
+    revertible: true
+    parameters:                       # akcja bez parametrów prawie zawsze powinna być rurą
+      - apiName: task
+        type: reference
+        required: true
+        description: Zadanie do postawienia.
+      - apiName: startTime
+        type: timestamp
+        required: true
+        description: Chwila startu.
+    rules:                            # co ta akcja ZMIENIA w modelu
+      - op: modify                    # create | modify | delete | createLink | deleteLink
+        target: Task.startTime
+        description: Ustawia start bloku.
+    submissionCriteria:               # czego akcja odmawia, ZANIM cokolwiek zmieni
+      - id: start-before-end
+        on: startTime
+        operator: lt
+        message: Start musi być wcześniejszy niż koniec.
+
+  - apiName: issueInvoice
+    displayName: Wystaw fakturę
+    description: Zamyka rozliczenie tego, co da się policzyć do faktury.
+    status: experimental
+    revertible: false
+    parameters:
+      - apiName: subject
+        type: Billable                # znowu interfejs — akcja nie musi wiedzieć, CO fakturuje
+        required: true
+        description: Rzecz do rozliczenia.
+    rules:
+      - op: modify
+        target: Order.monetaryValue
+        description: Zamyka wartość na moment wystawienia.
+    submissionCriteria:
+      - id: value-present
+        on: subject
+        operator: not-null
+        message: Nie fakturuje się rzeczy bez wartości.
+
+# ── FUNKCJE — liczą, nie zmieniają ────────────────────────────────────────────────────────
+functions:
+  - apiName: taskDuration
+    description: Czas trwania zadania na wskazanym zasobie.
+    status: experimental
+    inputs:
+      - apiName: task
+        type: Schedulable             # ⚠ TYP INTERFEJSU, nie konkretny — funkcja napisana raz
+        # działa na każdym typie, który spełnia kontrakt. To jest cała wartość interfejsu.
+      - apiName: resource
+        type: reference
+    output:
+      type: DurationBreakdown         # ⚠ REKORD Z REPOZYTORIUM KODU — patrz `functionTypes` niżej
+    constraint: null                  # nazwa reguły silnika, jeśli ta funkcja JEST regułą
+
+# ── INTERFEJSY — kontrakt kształtu, nie byt ───────────────────────────────────────────────
+interfaces:
+  - apiName: Schedulable
+    description: >-
+      Cokolwiek zajmuje zasób w czasie i ma okno, w którym wolno to zrobić. Ten opis jest
+      celowo zapisany blokiem `>-`: tak zapisuje się w YAML-u zdanie dłuższe niż linia,
+      a walidator czyta to tak samo jak napis w jednej linii.
+    status: experimental
+    properties:
+      - apiName: startTime
+        type: timestamp
+        required: true
+      - apiName: endTime
+        type: timestamp
+        required: true
+    linkConstraints:                  # relacje, których wymaga kontrakt
+      - apiName: assignedResource
+        to: Resource
+        cardinality: MANY_TO_ONE
+    actionConstraints:                # ZDOLNOŚCI, których wymaga kontrakt — najczęściej pomijane
+      - apiName: place
+        required: false
+        description: Postaw to na zasobie w konkretnej chwili.
+    implementedBy: [Task]
+
+  - apiName: Billable
+    description: Cokolwiek da się policzyć do faktury.
+    status: experimental
+    properties:
+      - apiName: monetaryValue
+        type: decimal
+        required: true
+    actionConstraints:
+      - apiName: invoice
+        required: false
+        description: Policz to do faktury.
+    implementedBy: [Order]
+
+# ── TYPY WSPÓŁDZIELONE — jedna WŁAŚCIWOŚĆ używana na wielu typach ─────────────────────────
+#
+# ⚠ TO JEST TYP POLA obiektu albo parametru akcji — rzecz, którą zakłada się w Ontology
+# Managerze i która ma kolumnę „Usage”. Jeśli twój rekord nie jest właściwością NICZEGO,
+# jego miejsce jest niżej, w `functionTypes`.
+sharedPropertyTypes:
+  - apiName: ErpCode
+    type: string
+    description: Klucz nadawany przez system ERP klienta.
+    usedBy: [Order.orderId]           # opis dla człowieka; referencję robi `sharedPropertyType`
+
+# ── TYPY Z REPOZYTORIUM KODU FUNKCJI ──────────────────────────────────────────────────────
+#
+# ⚠ TO NIE SĄ ZASOBY ONTOLOGII i Foundry mówi to wprost: „Custom types used in function
+# signatures are different from the generated classes used for Ontology struct properties”.
+# Rekord, który jest wejściem albo wyjściem funkcji (albo zwrotem akcji), mieszka w KODZIE
+# funkcji jako `interface` (TypeScript) albo klasa (Python). Ontologia zna sygnaturę;
+# definicja rekordu leży obok, w repo. W Ontology Managerze nie ma go wcale.
+#
+# ⚠ TYP UŻYWANY PRZEZ OBOJE ZOSTAJE WYŻEJ, w `sharedPropertyTypes` — funkcje w Foundry
+# normalnie biorą typy ontologiczne i to jest w porządku.
+#
+# Grupy może nie być wcale: wtedy walidator zakłada, że wszystko stoi w ontologii, i mówi,
+# co z tego naprawdę jest typem kodu.
+functionTypes:
+  - apiName: DurationBreakdown
+    type: struct
+    description: Rozbicie czasu zadania na składniki — wynik `taskDuration`.
+    fields:
+      - apiName: setupMinutes
+        type: integer
+      - apiName: runMinutes
+        type: integer

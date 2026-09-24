@@ -1,0 +1,14 @@
+{
+  "name": "ontology-validator",
+  "version": "1.8.0",
+  "description": "Walidator ontologii w kształcie Palantir Foundry — silnik reguł, czytnik formatu Foundry i usługa HTTP.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node web/server.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": { "vitest": "^2.1.8" }
+}

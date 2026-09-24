@@ -1,0 +1,284 @@
+{
+  "ontology": "nazwa-twojej-ontologii",
+  "version": "1.0",
+  "objectTypes": [
+    {
+      "apiName": "Order",
+      "displayName": "Zlecenie",
+      "pluralDisplayName": "Zlecenia",
+      "description": "Zamówienie klienta na wykonanie wyrobu, od przyjęcia do wydania.",
+      "primaryKey": "orderId",
+      "titleProperty": "orderNumber",
+      "status": "active",
+      "visibility": "prominent",
+      "implements": [
+        "Billable"
+      ],
+      "properties": [
+        {
+          "apiName": "orderId",
+          "type": "string",
+          "required": true,
+          "description": "Klucz zlecenia nadawany przez ERP.",
+          "sharedPropertyType": "ErpCode"
+        },
+        {
+          "apiName": "orderNumber",
+          "type": "string",
+          "required": true,
+          "description": "Numer, którym o zleceniu mówi handlowiec i hala."
+        },
+        {
+          "apiName": "dueDate",
+          "type": "date",
+          "required": true,
+          "description": "Termin, na który zlecenie ma być gotowe."
+        },
+        {
+          "apiName": "monetaryValue",
+          "type": "decimal",
+          "required": false,
+          "description": "Wartość zamówienia w walucie rozliczenia.",
+          "classification": "restricted"
+        },
+        {
+          "apiName": "taskCount",
+          "type": "integer",
+          "description": "Liczba zadań tego zlecenia.",
+          "derived": {
+            "via": [
+              "tasks"
+            ],
+            "aggregation": "count"
+          }
+        },
+        {
+          "apiName": "plannerNote",
+          "type": "string",
+          "description": "Notatka planisty przy zleceniu.",
+          "editOnly": true
+        }
+      ]
+    },
+    {
+      "apiName": "Task",
+      "displayName": "Zadanie",
+      "pluralDisplayName": "Zadania",
+      "description": "Jedno wykonanie kroku na konkretnym zasobie w konkretnym oknie czasu.",
+      "primaryKey": "taskId",
+      "titleProperty": "taskId",
+      "status": "experimental",
+      "visibility": "normal",
+      "implements": [
+        "Schedulable"
+      ],
+      "properties": [
+        {
+          "apiName": "taskId",
+          "type": "string",
+          "required": true,
+          "description": "Tożsamość bloku na osi."
+        },
+        {
+          "apiName": "startTime",
+          "type": "timestamp",
+          "required": true,
+          "description": "Kiedy zadanie zaczyna zajmować zasób."
+        },
+        {
+          "apiName": "endTime",
+          "type": "timestamp",
+          "required": true,
+          "description": "Kiedy zwalnia zasób."
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "apiName": "tasks",
+      "from": "Order",
+      "to": "Task",
+      "cardinality": "ONE_TO_MANY",
+      "reverseName": "order",
+      "displayName": "Zadania",
+      "reverseDisplayName": "Zlecenie",
+      "description": "Zadania, na które rozpada się to zlecenie.",
+      "status": "experimental"
+    }
+  ],
+  "actionTypes": [
+    {
+      "apiName": "scheduleTask",
+      "displayName": "Zaplanuj zadanie",
+      "description": "Stawia zadanie na zasobie w konkretnym oknie czasu.",
+      "status": "experimental",
+      "revertible": true,
+      "parameters": [
+        {
+          "apiName": "task",
+          "type": "reference",
+          "required": true,
+          "description": "Zadanie do postawienia."
+        },
+        {
+          "apiName": "startTime",
+          "type": "timestamp",
+          "required": true,
+          "description": "Chwila startu."
+        }
+      ],
+      "rules": [
+        {
+          "op": "modify",
+          "target": "Task.startTime",
+          "description": "Ustawia start bloku."
+        }
+      ],
+      "submissionCriteria": [
+        {
+          "id": "start-before-end",
+          "on": "startTime",
+          "operator": "lt",
+          "message": "Start musi być wcześniejszy niż koniec."
+        }
+      ]
+    },
+    {
+      "apiName": "issueInvoice",
+      "displayName": "Wystaw fakturę",
+      "description": "Zamyka rozliczenie tego, co da się policzyć do faktury.",
+      "status": "experimental",
+      "revertible": false,
+      "parameters": [
+        {
+          "apiName": "subject",
+          "type": "Billable",
+          "required": true,
+          "description": "Rzecz do rozliczenia."
+        }
+      ],
+      "rules": [
+        {
+          "op": "modify",
+          "target": "Order.monetaryValue",
+          "description": "Zamyka wartość na moment wystawienia."
+        }
+      ],
+      "submissionCriteria": [
+        {
+          "id": "value-present",
+          "on": "subject",
+          "operator": "not-null",
+          "message": "Nie fakturuje się rzeczy bez wartości."
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "apiName": "taskDuration",
+      "description": "Czas trwania zadania na wskazanym zasobie.",
+      "status": "experimental",
+      "inputs": [
+        {
+          "apiName": "task",
+          "type": "Schedulable"
+        },
+        {
+          "apiName": "resource",
+          "type": "reference"
+        }
+      ],
+      "output": {
+        "type": "DurationBreakdown"
+      },
+      "constraint": null
+    }
+  ],
+  "interfaces": [
+    {
+      "apiName": "Schedulable",
+      "description": "Cokolwiek zajmuje zasób w czasie i ma okno, w którym wolno to zrobić. Ten opis jest celowo zapisany blokiem `>-`: tak zapisuje się w YAML-u zdanie dłuższe niż linia, a walidator czyta to tak samo jak napis w jednej linii.",
+      "status": "experimental",
+      "properties": [
+        {
+          "apiName": "startTime",
+          "type": "timestamp",
+          "required": true
+        },
+        {
+          "apiName": "endTime",
+          "type": "timestamp",
+          "required": true
+        }
+      ],
+      "linkConstraints": [
+        {
+          "apiName": "assignedResource",
+          "to": "Resource",
+          "cardinality": "MANY_TO_ONE"
+        }
+      ],
+      "actionConstraints": [
+        {
+          "apiName": "place",
+          "required": false,
+          "description": "Postaw to na zasobie w konkretnej chwili."
+        }
+      ],
+      "implementedBy": [
+        "Task"
+      ]
+    },
+    {
+      "apiName": "Billable",
+      "description": "Cokolwiek da się policzyć do faktury.",
+      "status": "experimental",
+      "properties": [
+        {
+          "apiName": "monetaryValue",
+          "type": "decimal",
+          "required": true
+        }
+      ],
+      "actionConstraints": [
+        {
+          "apiName": "invoice",
+          "required": false,
+          "description": "Policz to do faktury."
+        }
+      ],
+      "implementedBy": [
+        "Order"
+      ]
+    }
+  ],
+  "sharedPropertyTypes": [
+    {
+      "apiName": "ErpCode",
+      "type": "string",
+      "description": "Klucz nadawany przez system ERP klienta.",
+      "usedBy": [
+        "Order.orderId"
+      ]
+    }
+  ],
+  "functionTypes": [
+    {
+      "apiName": "DurationBreakdown",
+      "type": "struct",
+      "description": "Rozbicie czasu zadania na składniki — wynik `taskDuration`.",
+      "fields": [
+        {
+          "apiName": "setupMinutes",
+          "type": "integer"
+        },
+        {
+          "apiName": "runMinutes",
+          "type": "integer"
+        }
+      ]
+    }
+  ]
+}

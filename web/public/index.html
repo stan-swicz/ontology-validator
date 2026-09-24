@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ⚠ Ikona jako data: URI, nie plik. Strona ma robić DOKŁADNIE cztery żądania
+     (HTML, szablon, /api/reguly, /api/zdrowie) — piąte po `/favicon.ico` kończyło się
+     404 w konsoli każdego, kto ją otworzył. To jest ten sam pierścień, co tarcza wyniku. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d0d'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%233987e5' stroke-width='3' stroke-dasharray='42 15' transform='rotate(-90 16 16)'/%3E%3C/svg%3E">
+<title>Walidator ontologii — zgodność z praktyką Palantir Foundry</title>
+<meta name="description" content="Wrzuć swoją ontologię i zobacz, w ilu miejscach odchodzi od praktyki projektowej Palantir Foundry. Wynik 0–100 z wyjaśnieniem każdego znaleziska.">
+<style>
+/* ⚠ Tokeny skopiowane z planer-design-system/tokens.css — produkt NIE definiuje kolorów.
+   Kopia, a nie import, bo ta strona musi chodzić także z file:// i bez reszty repo. */
+:root{
+  --page:#0d0d0d; --surface:#1a1a19; --track:#141413; --idle:#242423;
+  --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18);
+  --row-alt:rgba(255,255,255,.015);
+  --ink:#fff; --muted:#898781;
+  --good:#1a8a40; --good-hi:#22a34e;
+  --warn:#fab219; --warn-ink:#141200;
+  --crit:#b3261e; --crit-hi:#d03b3b;
+  --accent:#3987e5; --accent-hi:#5a9dea;
+  --alert:#ec835a;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+/* ⚠ TYLKO CIEMNY MOTYW (decyzja z 16.09.2026). Paleta jasna i przełącznik zeszły razem —
+   martwy zestaw tokenów wygląda jak wsparcie, którego nikt nie sprawdza, a design system ma
+   obie palety u siebie, więc nic nie ginie. `color-scheme` mówi przeglądarce, żeby pola
+   formularza i paski przewijania też były ciemne. */
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+/* ⚠ `display:none` atrybutu `hidden` siedzi w arkuszu PRZEGLĄDARKI, więc przegrywa z każdą
+   naszą regułą — element z `display:flex` albo `display:block` zostaje na ekranie MIMO `hidden`.
+   Złapane dwa razy: przełącznik AI pokazywał się bez klucza, a `<main>` nie chowało się pod
+   dokumentacją. Raz a dobrze, dla całej strony. */
+[hidden]{display:none!important}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.55 var(--sans);
+  -webkit-font-smoothing:antialiased}
+a{color:var(--accent-hi)}
+code,kbd{font-family:var(--mono);font-size:.88em;background:var(--track);
+  padding:.1em .34em;border-radius:3px;border:1px solid var(--border)}
+/* ⚠ EKRAN WEJŚCIA MIEŚCI SIĘ W OKNIE BEZ SCROLLA. `100dvh`, nie `100vh`: na telefonie pasek
+   adresu zjada `vh` i strona i tak by się przewijała. Kolumna flex, a pole tekstowe bierze
+   resztę wysokości — dzięki temu jeden układ działa na laptopie i na monitorze 27". */
+.wrap{max-width:1080px;margin:0 auto;padding-block:24px;padding-inline:16px;
+  min-height:100dvh;display:flex;flex-direction:column;position:relative;z-index:1}
+#narzedzie{flex:1;display:flex;flex-direction:column;min-height:0}
+#narzedzie .pole{flex:1 1 auto;min-height:120px}
+/* ⚠ Gdy pojawi się RAPORT, ograniczenie znika: raport ma prawo być długi i wtedy scroll jest
+   właściwym zachowaniem. Jednoekranowe jest WEJŚCIE, nie wynik. */
+body.zraportem .wrap{min-height:0}
+body.zraportem #narzedzie{flex:none}
+body.zraportem #narzedzie .pole{flex:none;height:150px;min-height:150px}
+
+/* ── siatka kropek w tle ─────────────────────────────────────────────────
+   ⚠ `pointer-events:none` i `z-index:0` — tło nie ma prawa przechwycić ani jednego kliknięcia
+   w pole tekstowe pod spodem. To jest ozdoba, a nie warstwa interfejsu. */
+#siatka{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;
+  display:block}
+
+h1{font-size:23px;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:17px;margin:32px 0 10px;letter-spacing:-.005em}
+h3{font-size:14px;margin:20px 0 8px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;font-weight:600}
+p{margin:0 0 10px}
+.lead{color:var(--muted);max-width:70ch;margin-bottom:18px}
+
+/* ── pasek górny ───────────────────────────────────────────────────────── */
+.top{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;justify-content:space-between}
+.znaczek{font:600 11px/1 var(--mono);letter-spacing:.08em;color:var(--muted);
+  border:1px solid var(--border);border-radius:99px;padding:5px 10px;white-space:nowrap}
+.znaczek.wersja{color:var(--accent-hi);border-color:var(--accent)}
+button{font:inherit;cursor:pointer;border-radius:7px;border:1px solid var(--border-strong);
+  background:var(--surface);color:var(--ink);padding:8px 14px;transition:.12s}
+button:hover:not(:disabled){border-color:var(--accent);background:var(--idle)}
+button:disabled{opacity:.45;cursor:default}
+button.glowny{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.glowny:hover:not(:disabled){background:var(--accent-hi);border-color:var(--accent-hi)}
+button.maly{padding:5px 10px;font-size:13px}
+/* ⚠ JEDEN GEST NA EKRANIE WEJŚCIA. Wygaszony, dopóki nie ma czego sprawdzać — przycisk,
+   który po kliknięciu mówi „wklej najpierw plik", jest gorszy od przycisku, którego nie
+   da się kliknąć. */
+button.pelny{width:100%;padding:12px 14px;font-size:15px}
+
+/* ── kroki ─────────────────────────────────────────────────────────────── */
+.kroki{list-style:none;padding:0;margin:6px 0 14px;display:grid;gap:10px;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.krok{background:var(--surface);border:1px solid var(--border);border-radius:11px;
+  padding:14px 15px;display:flex;flex-direction:column;gap:5px}
+.krokEmoji{font-size:26px;line-height:1;margin-bottom:4px}
+.krokNr{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.krok strong{font-size:14.5px;line-height:1.35}
+.krok p{margin:0;color:var(--muted);font-size:13px}
+.krok button{align-self:flex-start;margin-top:8px}
+
+/* ── wejście ───────────────────────────────────────────────────────────── */
+/* ⚠ TŁO PÓŁPRZEZROCZYSTE, I TO NIE JEST OZDOBA OZDOBY: pole zajmuje w układzie
+   jednoekranowym większość okna, więc przy tle krytym kula wokół kursora byłaby
+   niewidoczna dokładnie tam, gdzie kursor spędza czas. Tekst stoi na `--ink`,
+   więc czytelności to nie rusza. */
+.pole{width:100%;min-height:210px;resize:vertical;color:var(--ink);
+  background:color-mix(in srgb,var(--track) 64%,transparent);
+  border:1px solid var(--border);border-radius:9px;padding:13px;font:13px/1.5 var(--mono);
+  tab-size:2}
+.pole:focus{outline:2px solid var(--accent);outline-offset:1px}
+.pole.upuszczanie{outline:2px dashed var(--accent);outline-offset:3px}
+.rzad{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:11px}
+.przelacznik{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px;
+  cursor:pointer;user-select:none}
+.przelacznik input{accent-color:var(--accent);width:15px;height:15px}
+/* (globalna reguła `[hidden]{display:none!important}` wyżej załatwia też ten przypadek) */
+.blad{border:1px solid var(--crit-hi);background:color-mix(in srgb,var(--crit) 14%,transparent);
+  border-radius:8px;padding:11px 13px;margin-top:13px;font-size:14px}
+
+/* ── historia ──────────────────────────────────────────────────────────── */
+/* Wiersz jest PRZYCISKIEM, nie `div`-em z `onclick`: klawiatura i czytnik ekranu dostają
+   go za darmo, a `:focus-visible` z reszty strony działa bez dokładania czegokolwiek. */
+#historiaLista{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.hWiersz{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:9px 12px;border-radius:9px;background:var(--surface)}
+.hWynik{flex:none;width:44px;text-align:center;font:700 16px/1.6 var(--mono);border-radius:7px}
+.hWynik.ok{color:var(--good-hi);background:color-mix(in srgb,var(--good) 18%,transparent)}
+.hWynik.sred{color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.hWynik.slabo{color:var(--crit-hi);background:color-mix(in srgb,var(--crit) 18%,transparent)}
+.hWynik.zle{color:var(--crit-hi);background:color-mix(in srgb,var(--crit) 22%,transparent)}
+.hOpis{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.hOpis strong{font-size:14px}
+.hOpis small{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hData{flex:none;color:var(--muted);font:12px/1 var(--mono)}
+#historiaWpis{margin-top:22px}
+#historiaWpis pre.kod{max-height:60vh;overflow:auto}
+
+/* ── wynik ─────────────────────────────────────────────────────────────── */
+.karta{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:17px}
+.wynikRzad{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.tarcza{--p:0;position:relative;width:118px;height:118px;flex:none;border-radius:50%;
+  background:conic-gradient(var(--kolor) calc(var(--p)*1%),var(--track) 0);
+  display:grid;place-items:center}
+.tarcza::after{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--surface)}
+.tarcza b{position:relative;z-index:1;font:700 31px/1 var(--sans);letter-spacing:-.03em}
+.tarcza small{position:relative;z-index:1;display:block;text-align:center;color:var(--muted);
+  font-size:11px;margin-top:3px}
+.werdykt{flex:1;min-width:240px}
+.werdykt h2{margin:0 0 5px;font-size:19px}
+.liczniki{display:flex;gap:16px;flex-wrap:wrap;margin-top:9px;font-size:13px;color:var(--muted)}
+.liczniki b{color:var(--ink)}
+.kropka{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+  vertical-align:middle}
+.k-zlamanie{background:var(--crit-hi)} .k-ryzyko{background:var(--warn)} .k-uwaga{background:var(--muted)}
+/* ⚠ Podpowiedź ma WYGLĄDAĆ inaczej niż zarzut: to kandydat do obejrzenia za zero punktów. */
+.k-podpowiedz{background:var(--accent)}
+
+/* ── kategorie ─────────────────────────────────────────────────────────── */
+.kat{display:grid;grid-template-columns:minmax(120px,1.1fr) 1fr auto;gap:11px;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+.kat:last-child{border-bottom:0}
+.kat .nazwa{font-weight:600}
+.kat .opis{color:var(--muted);font-size:12px;font-weight:400;display:block;margin-top:1px}
+.pasek{height:8px;background:var(--track);border-radius:99px;overflow:hidden}
+.pasek i{display:block;height:100%;border-radius:99px;background:var(--kolor)}
+.kat .pkt{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* ── znaleziska ────────────────────────────────────────────────────────── */
+details.znal{border:1px solid var(--border);border-left:3px solid var(--kolor);
+  border-radius:8px;margin-bottom:8px;background:var(--surface)}
+details.znal[open]{border-color:var(--border-strong);border-left-color:var(--kolor)}
+details.znal summary{padding:10px 13px;cursor:pointer;display:flex;gap:10px;align-items:baseline;
+  list-style:none;font-size:14px}
+details.znal summary::-webkit-details-marker{display:none}
+details.znal summary::before{content:"▸";color:var(--muted);flex:none;transition:.12s}
+details.znal[open] summary::before{transform:rotate(90deg)}
+.regId{font:600 11px/1.6 var(--mono);color:var(--kolor);flex:none;border:1px solid var(--kolor);
+  border-radius:4px;padding:0 5px;opacity:.9}
+.tresc{padding:0 13px 13px 13px;font-size:13.5px}
+.tresc dl{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin:0}
+.tresc dt{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+  font-weight:600;padding-top:2px}
+.tresc dd{margin:0}
+.tresc .zrodlo{font-size:12px;color:var(--muted);font-style:italic}
+.gdzie{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+/* ── zakładki na dole ──────────────────────────────────────────────────── */
+.zakladki{display:flex;gap:3px;border-bottom:1px solid var(--border);margin-bottom:15px;
+  overflow-x:auto}
+.zakladki button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;
+  color:var(--muted);padding:9px 13px;white-space:nowrap}
+.zakladki button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);
+  font-weight:600}
+.zakladki button:hover{background:var(--row-alt);border-bottom-color:var(--border-strong)}
+pre.kod{background:var(--track);border:1px solid var(--border);border-radius:9px;padding:14px;
+  overflow-x:auto;font:12px/1.5 var(--mono);max-height:520px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+tbody tr:nth-child(even){background:var(--row-alt)}
+.ukryte{display:none!important}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--border-strong);
+  border-top-color:var(--accent);border-radius:50%;animation:obrot .7s linear infinite;
+  vertical-align:-2px;margin-right:6px}
+@keyframes obrot{to{transform:rotate(360deg)}}
+/* ══════════════════════════════════════════════════════════════════════════════
+   WĄSKIE OKNO — JEDEN BLOK NA CAŁĄ STRONĘ, I TO JEST WARUNEK, ŻEBY DZIAŁAŁ
+   ⚠ Te reguły stały wcześniej NA GÓRZE arkusza, przed regułami komponentów. Przy tej samej
+   szczegółowości wygrywa reguła PÓŹNIEJSZA, więc połowa z nich była martwa — `.krok`,
+   `.krok` i `.rzad` z tego bloku nie robiły nic, a pomiar telefonu nie drgnął ani o piksel
+   po ich dołożeniu. Dlatego cały blok mieszka na KOŃCU arkusza. Dokładając tu regułę,
+   nie przenoś jej wyżej „bliżej komponentu".
+   ══════════════════════════════════════════════════════════════════════════════ */
+@media (max-width:640px){
+  .kat{grid-template-columns:1fr auto}
+  .kat .pasek{grid-column:1/-1}
+  .tarcza{width:96px;height:96px}
+
+  .wrap{padding-block:16px}
+  .lead{font-size:14px;margin-bottom:12px}
+  h1{font-size:20px}
+  #narzedzie .pole{min-height:80px}
+  /* ⚠ KROKI JADĄ W POZIOMIE, NIE W SŁUPKU. Cztery karty jedna pod drugą to zmierzone
+     1469 px treści przy ekranie 844 px — czyli sam wstęp dłuższy niż całe okno. Przewijanie
+     w POZIOMIE jest tu dozwolone (to samo robimy z tabelami): strona w pionie zostaje jednym
+     ekranem, a instrukcja zostaje w CAŁOŚCI, zamiast zostać skrócona do trzech słów.
+     `grid-template-columns:none` jest obowiązkowe — bez tego elementy wchodzą najpierw
+     w kolumny jawne i `grid-auto-flow` nic nie robi. */
+  .kroki{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:88%;
+    overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;
+    margin-bottom:10px;padding-bottom:4px}
+  .krok{scroll-snap-align:start;padding:12px 13px;gap:4px}
+  .krok strong{font-size:14px}
+  .krok p{font-size:12px;line-height:1.45}
+  .krokEmoji{font-size:20px;margin-bottom:2px}
+  .rzad{gap:7px;margin-top:7px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="siatka" aria-hidden="true"></canvas>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <h1>Walidator ontologii</h1>
+      <p class="lead">Wrzuć swoją ontologię i zobacz, w ilu miejscach odchodzi od praktyki
+      projektowej <strong>Palantir Foundry</strong>. Każde znalezisko mówi, co jest nie tak,
+      dlaczego to problem, jak to naprawić i skąd ta zasada pochodzi.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="znaczek wersja" id="znaczekWersji" title="wersja zestawu reguł — wyniki porównuj tylko w obrębie jednej">wersja 1.8</span>
+      <span class="znaczek" id="znaczekRegul">…</span>
+      <button class="maly" id="przelaczDokumentacje">Dokumentacja</button>
+      <button class="maly" id="przelaczHistorie" title="historia sprawdzeń" aria-label="historia sprawdzeń">🕘</button>
+    </div>
+  </div>
+
+  <main id="narzedzie">
+
+  <!-- ⚠ Cztery kroki to CAŁA instrukcja dla człowieka, który trafia tu pierwszy raz (decyzja właściciela, 15.09.2026).
+       Szczegóły (wersjonowanie reguł, koszty, API) mieszkają w DOKUMENTACJI pod przyciskiem
+       w pasku górnym — nie tutaj. (Do 15.09 stały „w zakładkach na dole"; zakładki przeniosły
+       się do osobnego widoku `#dokumentacja`, kroki zostały tam, gdzie były.) -->
+  <ol class="kroki" aria-label="Jak z tego korzystać">
+    <li class="krok">
+      <span class="krokEmoji" aria-hidden="true">📥</span>
+      <span class="krokNr">krok 1</span>
+      <strong>Pobierz szablon YAML</strong>
+      <p>Wzorzec, który przechodzi 100/100 — widać w nim, jak opisać typy, linki i akcje.</p>
+      <button class="maly" id="krokPobierz">Pobierz szablon.yaml</button>
+    </li>
+    <li class="krok">
+      <span class="krokEmoji" aria-hidden="true">🤖</span>
+      <span class="krokNr">krok 2</span>
+      <strong>Przepisz swoją ontologię na szablon</strong>
+      <p>Ręcznie albo z pomocą AI: daj modelowi swój schemat i szablon, poproś o przepisanie
+      bez dopisywania czegokolwiek od siebie.</p>
+    </li>
+    <li class="krok">
+      <span class="krokEmoji" aria-hidden="true">📊</span>
+      <span class="krokNr">krok 3</span>
+      <strong>Wrzuć i dostań wynik</strong>
+      <p>Wklej albo przeciągnij plik niżej i kliknij „Sprawdź” — wynik 0–100 z wyjaśnieniem
+      każdego znaleziska.</p>
+    </li>
+    <li class="krok">
+      <span class="krokEmoji" aria-hidden="true">✅</span>
+      <span class="krokNr">krok 4</span>
+      <strong>Poprawiaj, aż będzie 90+</strong>
+      <p>Każde znalezisko mówi, jak je naprawić. Sprawdzaj ponownie, aż zgodność przekroczy
+      90 / 100.</p>
+    </li>
+  </ol>
+
+  <textarea class="pole" id="wejscie" spellcheck="false"
+    placeholder="Wklej ontologię (JSON albo YAML) — albo przeciągnij tu plik.&#10;&#10;Nie masz swojej pod ręką? Pobierz szablon z kroku 1."></textarea>
+
+  <!-- ⚠ JEDEN PRZYCISK, WYGASZONY DOPÓKI NIE MA CZEGO SPRAWDZAĆ. „Wczytaj szablon" i „Przykład
+       (zły)" przeniosły się do dokumentacji i do kroku 1 — na ekranie wejścia stały obok
+       jedynego gestu, który ma tu znaczenie, i rozpraszały go na cztery równorzędne. -->
+  <div class="rzad">
+    <button class="glowny pelny" id="sprawdz" disabled>Sprawdź</button>
+    <span class="znaczek" id="stan"></span>
+  </div>
+
+  <div id="bledy"></div>
+  <div id="raport"></div>
+  </main>
+
+  <div id="dokumentacja" hidden>
+  <h2 id="dolneNaglowek">Dokumentacja</h2>
+  <div class="zakladki" role="tablist">
+    <button role="tab" data-panel="szablon" aria-selected="true">Szablon</button>
+    <button role="tab" data-panel="reguly" aria-selected="false">Reguły</button>
+    <button role="tab" data-panel="punktacja" aria-selected="false">Jak liczymy wynik</button>
+    <button role="tab" data-panel="api" aria-selected="false">API</button>
+  </div>
+
+  <section id="panel-szablon">
+    <p class="lead">Format wejścia jest celowo nazwany po Foundry'emu (<code>objectTypes</code>,
+    <code>apiName</code>, <code>MANY_TO_ONE</code>) — te nazwy rozpoznasz z dokumentacji
+    Palantira. <strong>Obowiązkowa jest tylko lista <code>objectTypes</code></strong>; grupa,
+    której nie ma, nie jest karana. Przyjmujemy JSON i YAML.</p>
+    <p class="lead" style="margin-top:-6px"><strong>Formatowanie nas nie obchodzi.</strong>
+    Czytamy plik po bibliotece YAML tak samo jak pisany ręcznie: listę na tym samym wcięciu co
+    klucz, opis łamany na kilka linii (w cudzysłowie, w apostrofach albo bez), blok
+    <code>&gt;-</code> i <code>|-</code>, polskie znaki jako <code>\xF3</code>, tagi
+    <code>!!str</code>. Zgodność sprawdzamy, porównując wynik z prawdziwym parserem YAML.
+    Jak plik naprawdę nie parsuje — komunikat podaje <strong>numer linii</strong>.</p>
+    <div class="rzad" style="margin-bottom:12px">
+      <button class="maly" id="pobierzYaml">Pobierz szablon.yaml</button>
+      <button class="maly" id="pobierzJson">Pobierz szablon.json</button>
+      <button class="maly" id="kopiujSzablon">Kopiuj do schowka</button>
+    </div>
+    <pre class="kod" id="podgladSzablonu">wczytuję…</pre>
+  </section>
+
+  <section id="panel-reguly" class="ukryte">
+    <p class="lead">Reguły są deterministyczne i mają stałe identyfikatory — <code>P12</code>
+    znaczy to samo dziś i za rok, więc raport da się porównywać między wersjami modelu.
+    Każda ma przy sobie cytat ze źródła; reguła bez źródła nie przechodzi naszych testów.</p>
+    <table><thead><tr><th>Id</th><th>Kategoria</th><th>Klasa</th><th>Czego pilnuje</th></tr></thead>
+    <tbody id="tabelaRegul"></tbody></table>
+  </section>
+
+  <section id="panel-punktacja" class="ukryte">
+    <p class="lead"><strong>wynik = 100 − suma kosztów znalezisk</strong>, przy czym każda
+    kategoria ma budżet: tyle punktów najwyżej można w niej stracić. Dzięki temu jeden zepsuty
+    obszar nie zjada całego wyniku, a widać, <em>gdzie</em> model przestał trzymać.</p>
+    <table><thead><tr><th>Klasa</th><th>Koszt</th><th>Co znaczy</th></tr></thead><tbody>
+      <tr><td><span class="kropka k-zlamanie"></span>złamanie</td><td><code>4 pkt</code></td>
+        <td>łamie zasadę, którą Foundry stawia wprost — zwykle nie da się tego zbudować</td></tr>
+      <tr><td><span class="kropka k-ryzyko"></span>ryzyko</td><td><code>1,5 pkt</code></td>
+        <td>wpada we wzorzec, przed którym Foundry ostrzega</td></tr>
+      <tr><td><span class="kropka k-uwaga"></span>uwaga</td><td><code>0,4 pkt</code></td>
+        <td>sygnał do przejrzenia — bywa uzasadniony, dlatego kosztuje mało</td></tr>
+    </tbody></table>
+    <h3>Wersja zestawu reguł</h3>
+    <p>Każdy raport niesie numer wersji (<code>wersjaRegul</code> w JSON-ie, odznaka u góry
+    strony). <strong>Numer ma dwie liczby i idzie co 0,1</strong> — 0.1 → 0.2 → … → 1.0 → 1.1.
+    To nie jest semver: nie ma tu API, które można zepsuć, jest zestaw reguł, który się
+    rozrasta.</p>
+    <p>⚠ <strong>Numer rośnie przy wszystkim, co może przesunąć czyjś wynik:</strong> dołożona
+    albo skasowana reguła, zmieniony koszt klasy, zmieniony budżet kategorii, przesunięty próg.
+    Poprawka literówki w uzasadnieniu wersji nie zmienia. Dzięki temu zdanie „poprawiliśmy
+    model o 6 punktów” znaczy coś tylko wtedy, gdy oba raporty mają ten sam numer — a jeśli
+    nie mają, od razu to widać.</p>
+
+    <h3>Dwa silniki, jedna liczba</h3>
+    <p>Wynik liczy <strong>wyłącznie kod</strong>, deterministycznie: ten sam plik zawsze da tę
+    samą liczbę. Model językowy — jeśli go włączysz — dokłada osąd o rzeczach, których nie da
+    się policzyć (czy dwa typy to ten sam byt, czy nazwa coś znaczy w tej branży), ale
+    <strong>nie dotyka punktów</strong>. Gdyby je liczył, dwa uruchomienia dałyby dwie liczby
+    i raport przestałby się nadawać do porównywania wersji.</p>
+    <p><strong>Model pytamy wąsko — i domyślnie tanio.</strong> W trybie
+    <em>klasyfikacji</em> dostaje samą tabelę nazw typów i odpowiada zamkniętą etykietą: co jest
+    maszynerią narzędzia, a co rzeczownikiem z twojej organizacji. Wniosek („więc to powinno mieć
+    <code>hidden</code>”) wyciąga z tych etykiet <strong>kod</strong>. Dzięki temu wystarcza mały,
+    tani model: zamknięta odpowiedź jest sprawdzalna (nazwa musi istnieć w wysłanej tabeli),
+    a wolna proza nie jest — i to ona wymaga dużego modelu. Recenzja prozą jest drugim trybem,
+    włączanym świadomie; na typowym modelu kosztuje ponad dwadzieścia razy więcej tokenów.</p>
+    <h3>Czego to narzędzie NIE sprawdza</h3>
+    <p>Nie wie nic o twoich danych ani o twoim kodzie. Sprawdza <em>kształt modelu</em>: czy jest
+    zaprojektowany tak, jak radzi Palantir. Ontologia może dostać 100/100 tutaj i dalej nie
+    pasować do rzeczywistości zakładu — <strong>to sprawdza się rozmową z ludźmi, którzy tam
+    pracują</strong>, nie walidatorem.</p>
+  </section>
+
+  <section id="panel-api" class="ukryte">
+    <p class="lead">Ta sama ocena z terminala albo z CI.</p>
+    <pre class="kod">curl -s https://valid.nueve.design/api/waliduj \
+  -H 'content-type: application/json' \
+  -d "$(jq -Rs '{tekst:.}' &lt; moja-ontologia.yaml)" | jq '.projekt.wynik'</pre>
+    <table><thead><tr><th>Trasa</th><th>Co robi</th></tr></thead><tbody>
+      <tr><td><code>POST /api/waliduj</code></td><td><code>{ tekst | kanon, ai?, tryb? }</code> → pełny raport JSON. <code>tekst</code> — plik JSON albo YAML w kształcie szablonu; <code>kanon</code> — ontologia już zamieniona na kształt kanoniczny (obiekt, z polem <code>formatWejscia</code>). <code>tryb</code>: <code>skan</code> — domyślny, pełny — albo <code>klasyfikacja</code>, tani; <code>ai: false</code> wyłącza osąd modelu</td></tr>
+      <tr><td><code>GET /api/reguly</code></td><td>lista reguł, kategorii i klas</td></tr>
+      <tr><td><code>GET /api/zdrowie</code></td><td>wersja i czy osąd modelu jest dostępny</td></tr>
+      <tr><td><code>GET /szablon.yaml</code></td><td>szablon wejścia</td></tr>
+    </tbody></table>
+
+    <h3>Co zostaje na serwerze</h3>
+    <!-- ⚠ TO ZDANIE PRZEPISUJE SIĘ SAMO z `/api/zdrowie` i tak ma zostać. Wpisane na sztywno
+         zamieniłoby się w kłamstwo przy pierwszej zmianie ustawień — i nikt by tego nie
+         zobaczył. Do 16.09.2026 stało w stopce na stronie głównej; zeszło stąd razem z całą
+         stopką (decyzja właściciela), więc TO JEST TERAZ JEDYNE miejsce, w którym człowiek może
+         się o tym dowiedzieć. Tym bardziej nie ma prawa zgadywać. -->
+    <p class="lead" id="obietnicaZapisu"><strong>Twoja ontologia nie jest nigdzie
+    zapisywana</strong> — wchodzi do pamięci procesu, zostaje oceniona i znika.</p>
+    <p class="lead">Osąd modelu wysyła do OpenAI <em>same nazwy typów i pól</em> (tryb
+    klasyfikacji) albo <em>szkielet</em> (pełny skan) — nigdy prozy z opisów. Odpowiedź modelu
+    leży godzinę w pamięci procesu, żeby drugie kliknięcie w ten sam plik nie kosztowało
+    drugiego zapytania; restart ją kasuje.</p>
+
+    <h3>Kto to zrobił</h3>
+    <p class="lead">Narzędzie <a href="https://nueve.design">Nueve</a>. Reguły odwzorowują
+    publiczną dokumentację <em>Palantir Foundry → Ontology</em> (Core concepts, Object &amp; link
+    types, Action types, Interfaces, Ontology design: Best practices / Structural guidance /
+    Anti-patterns). Nie jesteśmy związani z Palantir Technologies; nazwy produktów należą do
+    ich właścicieli.</p>
+  </section>
+
+  </div>
+
+  <!-- ⚠ HISTORIA — osobny widok, tak samo jak dokumentacja. Zamknięta tokenem: od kiedy
+       otwiera CUDZE WRZUCONE PLIKI, publiczny adres bez bramki byłby wyciekiem, a nie
+       zbiorem do optymalizacji reguł. -->
+  <div id="historia" hidden>
+    <h2>Historia sprawdzeń</h2>
+    <p class="lead" id="historiaOpis">…</p>
+    <div id="historiaLista"></div>
+    <div id="historiaWpis"></div>
+  </div>
+
+</div>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const KOLOR = { zlamanie:'var(--crit-hi)', ryzyko:'var(--warn)', uwaga:'var(--muted)', podpowiedz:'var(--accent)' };
+
+/* ⚠ POLSKI MA TRZY FORMY LICZBY MNOGIEJ, nie dwie. „1 interfejs · 2 interfejsy ·
+   5 interfejsów”, a przy 12–14 wraca forma dopełniaczowa („12 interfejsów”). Bez tego
+   publiczna strona wypisuje „1 interfejsów” — drobiazg, który widać w pierwszej sekundzie. */
+const odmien = (n, poj, mno, dop) => {
+  const s = Math.abs(n) % 100;
+  const j = s % 10;
+  if (n === 1) return poj;
+  if (j >= 2 && j <= 4 && (s < 12 || s > 14)) return mno;
+  return dop;
+};
+const ETYKIETA = { zlamanie:'złamanie', ryzyko:'ryzyko', uwaga:'uwaga' };
+const ETYKIETA_MNOGA = {
+  zlamanie: (n) => odmien(n, 'złamanie', 'złamania', 'złamań'),
+  ryzyko:   (n) => odmien(n, 'ryzyko', 'ryzyka', 'ryzyk'),
+  uwaga:    (n) => odmien(n, 'uwaga', 'uwagi', 'uwag'),
+  podpowiedz: (n) => `${odmien(n, 'podpowiedź', 'podpowiedzi', 'podpowiedzi')} (0 pkt)`,
+};
+
+/* Nazwy kategorii do POKAZANIA. Id są bez polskich znaków, bo jadą też w JSON-ie API
+   i w testach — ale użytkownik nie musi oglądać `wlasciwosci` ani `cykl-zycia`. */
+const NAZWA_KATEGORII = {
+  domena: 'domena', abstrakcja: 'abstrakcja', nazewnictwo: 'nazewnictwo', akcje: 'akcje',
+  wlasciwosci: 'właściwości', relacje: 'relacje', 'cykl-zycia': 'cykl życia',
+  tozsamosc: 'tożsamość', bezpieczenstwo: 'bezpieczeństwo', dokumentacja: 'dokumentacja',
+};
+
+/* ⚠ Treść znalezisk niesie nazwy Z PLIKU UŻYTKOWNIKA. Renderujemy przez textContent
+   i budujemy `<code>` ręcznie — nigdy innerHTML z cudzym napisem. */
+function zBacktickami(tekst) {
+  const frag = document.createDocumentFragment();
+  for (const [i, kawalek] of String(tekst ?? '').split('`').entries()) {
+    if (i % 2 === 1) { const c = document.createElement('code'); c.textContent = kawalek; frag.append(c); }
+    else if (kawalek) frag.append(document.createTextNode(kawalek));
+  }
+  return frag;
+}
+const el = (tag, klasa, tekst) => {
+  const e = document.createElement(tag);
+  if (klasa) e.className = klasa;
+  if (tekst !== undefined) e.textContent = tekst;
+  return e;
+};
+
+/* ── zakładki ──────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   DOKUMENTACJA JAKO OSOBNY WIDOK
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   ⚠ ADRES, NIE TYLKO PRZEŁĄCZNIK. Dokumentacja żyje pod `#dokumentacja`, więc da się ją PODESŁAĆ
+   linkiem, a „wstecz” w przeglądarce wraca do narzędzia zamiast wychodzić ze strony. Bez tego
+   jednoekranowy układ zamieniłby dokumentację w rzecz, do której nie da się odesłać.
+   ⚠ JEDNA DROGA ZMIANY STANU: klik ustawia HASH, a widok przestawia `hashchange`. Gdyby klik
+   przestawiał widok bezpośrednio, adres i ekran mogłyby mówić co innego.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+/* ⚠ TRZY WIDOKI, JEDNA FUNKCJA. Narzędzie, dokumentacja i historia wykluczają się wzajemnie;
+   gdyby każdy przełącznik chował „swoje", dałoby się dojść do ekranu z dwoma naraz. */
+const WIDOKI = { dokumentacja: '#dokumentacja', historia: '#historia' };
+const widok = (nazwa) => {
+  $('#narzedzie').hidden = Boolean(nazwa);
+  for (const [k, sel] of Object.entries(WIDOKI)) $(sel).hidden = nazwa !== k;
+  $('#przelaczDokumentacje').textContent = nazwa === 'dokumentacja' ? '← Narzędzie' : 'Dokumentacja';
+  $('#przelaczHistorie').textContent = nazwa === 'historia' ? '←' : '🕘';
+  if (nazwa) window.scrollTo(0, 0);
+  if (nazwa === 'historia') wczytajHistorie();
+};
+const zHasha = () => {
+  const h = window.location.hash.replace(/^#/, '');
+  return h in WIDOKI ? h : null;
+};
+const przelacz = (nazwa) => {
+  if (zHasha() === nazwa) {
+    /* Pusty hash nie wywołuje `hashchange` w każdej przeglądarce — stąd jawne przestawienie. */
+    history.pushState('', '', window.location.pathname);
+    widok(null);
+  } else window.location.hash = nazwa;
+};
+$('#przelaczDokumentacje').addEventListener('click', () => przelacz('dokumentacja'));
+$('#przelaczHistorie').addEventListener('click', () => przelacz('historia'));
+window.addEventListener('hashchange', () => widok(zHasha()));
+window.addEventListener('popstate', () => widok(zHasha()));
+/* ⚠ PIERWSZE USTAWIENIE WIDOKU STOI NA KOŃCU MODUŁU, nie tutaj. `widok('historia')` woła
+   `wczytajHistorie()`, a ta czyta `kluczHistorii` — `let` zadeklarowany NIŻEJ. Wywołanie
+   w tym miejscu wchodziło w martwą strefę i rzucało `ReferenceError`, który zabijał RESZTĘ
+   modułu: klucz nie znikał z adresu, lista nie wczytywała się, a strona wyglądała na pustą
+   historię zamiast na błąd. Złapane w przeglądarce, nie w przeglądzie kodu. */
+
+for (const b of document.querySelectorAll('.zakladki button')) {
+  b.onclick = () => {
+    for (const x of document.querySelectorAll('.zakladki button')) x.setAttribute('aria-selected', String(x === b));
+    for (const p of ['szablon', 'reguly', 'punktacja', 'api']) {
+      $(`#panel-${p}`).classList.toggle('ukryte', p !== b.dataset.panel);
+    }
+  };
+}
+
+/* ── szablon i reguły ──────────────────────────────────────────────────── */
+let szablonYaml = '';
+fetch('/szablon.yaml').then((r) => r.text()).then((t) => {
+  szablonYaml = t;
+  $('#podgladSzablonu').textContent = t;
+}).catch(() => { $('#podgladSzablonu').textContent = 'nie udało się wczytać szablonu'; });
+
+fetch('/api/reguly').then((r) => r.json()).then(({ reguly }) => {
+  $('#znaczekRegul').textContent = `${reguly.length} reguł`;
+  const tb = $('#tabelaRegul');
+  for (const r of reguly) {
+    const tr = el('tr');
+    const td1 = el('td'); td1.append(el('code', null, r.id)); tr.append(td1);
+    tr.append(el('td', null, NAZWA_KATEGORII[r.kategoria] ?? r.kategoria));
+    const td3 = el('td');
+    td3.append(el('span', `kropka k-${r.klasa}`), document.createTextNode(ETYKIETA[r.klasa] ?? r.klasa));
+    tr.append(td3);
+    tr.append(el('td', null, r.opis));
+    tb.append(tr);
+  }
+}).catch(() => { $('#znaczekRegul').textContent = 'offline'; });
+
+fetch('/api/zdrowie').then((r) => r.json()).then((z) => {
+  /* ⚠ STOPKA MÓWI PRAWDĘ O ZAPISIE, CZYTAJĄC JĄ Z SERWERA — nie jest wpisana na sztywno.
+     Gdyby była, włączenie historii na serwerze zamieniłoby ją w kłamstwo i nikt by tego nie
+     zauważył, bo strona wygląda tak samo. */
+  const ob = $('#obietnicaZapisu');
+  if (ob && z.historia) {
+    ob.textContent = '';
+    const mocne = el('strong', null, z.historiaTresc
+      ? 'Ta instancja ZAPISUJE historię sprawdzeń razem z treścią ontologii'
+      : 'Ta instancja zapisuje historię sprawdzeń (metryki i znaleziska, bez treści)');
+    ob.append(mocne, document.createTextNode(z.historiaTresc
+      ? ' — wynik, znaleziska i wrzucony plik zostają na serwerze, żeby dało się poprawiać reguły. Nie wrzucaj tu niczego, czego nie chcesz nam zostawić.'
+      : ' — wynik i znaleziska zostają na serwerze, żeby dało się poprawiać reguły. Treść ontologii nie jest zapisywana.'));
+  }
+
+  /* ⚠ PRZEŁĄCZNIKA AI NIE MA — model jedzie zawsze (decyzja z 16.09.2026), a serwer ma datę,
+     po której gasi go sam. Strona nie musi o tym nic wiedzieć poza tym, co napisać w pasku
+     stanu; gdy termin minie, `z.ai` przychodzi `false` i napis wraca do samego „liczę…". */
+  aiCzynne = Boolean(z.ai);
+  /* ⚠ Odznaka ma w HTML-u wartość STATYCZNĄ (żeby strona mówiła prawdę także z `file://`),
+     a tu ją tylko potwierdzamy z serwera. Rozjazd tych dwóch miejsc łapie test. */
+  if (z.wersja) {
+    $('#znaczekWersji').textContent = `wersja ${z.wersja}`;
+    $('#znaczekWersji').title = `zestaw reguł ${z.wersja} · budowa ${z.budowa}`
+      + ' — wyniki porównuj tylko w obrębie jednej wersji reguł';
+  }
+}).catch(() => {});
+
+const pobierz = (nazwa, tresc, typ) => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([tresc], { type: typ }));
+  /* ⚠ Zwolnienie adresu PO chwili — natychmiastowe potrafi uciąć pobieranie w Safari. */
+  a.download = nazwa; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+/* ⚠ Krok 1 to pierwszy klik nowej osoby — nie może pobrać PUSTEGO pliku tylko dlatego,
+   że szablon jeszcze się nie doczytał. */
+const pobierzSzablonYaml = async () => {
+  if (!szablonYaml) szablonYaml = await fetch('/szablon.yaml').then((r) => r.text());
+  pobierz('szablon.yaml', szablonYaml, 'text/yaml');
+};
+$('#pobierzYaml').onclick = pobierzSzablonYaml;
+$('#krokPobierz').onclick = pobierzSzablonYaml;
+$('#pobierzJson').onclick = () => fetch('/szablon.json').then((r) => r.text())
+  .then((t) => pobierz('szablon.json', t, 'application/json'));
+$('#kopiujSzablon').onclick = async (e) => {
+  try { await navigator.clipboard.writeText(szablonYaml); e.target.textContent = 'skopiowane ✓'; }
+  catch { e.target.textContent = 'schowek niedostępny'; }
+  setTimeout(() => { e.target.textContent = 'Kopiuj do schowka'; }, 1600);
+};
+
+/* ── wejście ───────────────────────────────────────────────────────────── */
+const wejscie = $('#wejscie');
+let aiCzynne = false;
+
+/* ⚠ PRZYCISK ŚWIECI SIĘ DOPIERO, GDY JEST CO SPRAWDZAĆ. Wcześniej stały tu cztery przyciski
+   równorzędnej wagi i „Sprawdź" niczym się z nich nie wyróżniał; dziś jest jeden, na całą
+   szerokość, i sam mówi, czy da się go użyć. Wyczyszczenie pola wraca do jednego ekranu —
+   inaczej pusta strona zostawałaby rozciągnięta po poprzednim raporcie. */
+const odswiezPrzycisk = () => {
+  const cos = wejscie.value.trim().length > 0;
+  $('#sprawdz').disabled = !cos;
+  if (!cos) {
+    $('#raport').replaceChildren();
+    $('#bledy').replaceChildren();
+    document.body.classList.remove('zraportem');
+  }
+};
+for (const zd of ['input', 'change', 'paste', 'drop']) {
+  wejscie.addEventListener(zd, () => setTimeout(odswiezPrzycisk, 0));
+}
+odswiezPrzycisk();
+
+for (const zdarzenie of ['dragenter', 'dragover']) {
+  wejscie.addEventListener(zdarzenie, (e) => { e.preventDefault(); wejscie.classList.add('upuszczanie'); });
+}
+for (const zdarzenie of ['dragleave', 'drop']) {
+  wejscie.addEventListener(zdarzenie, () => wejscie.classList.remove('upuszczanie'));
+}
+wejscie.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const plik = e.dataTransfer?.files?.[0];
+  if (plik) wejscie.value = await plik.text();
+});
+
+/* ── walidacja ─────────────────────────────────────────────────────────── */
+$('#sprawdz').onclick = sprawdz;
+wejscie.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sprawdz();
+});
+
+async function sprawdz() {
+  const tekst = wejscie.value.trim();
+  $('#bledy').replaceChildren();
+  if (!tekst) { pokazBlad('Najpierw wklej ontologię — szablon pobierzesz w kroku 1.'); return; }
+
+  const przycisk = $('#sprawdz');
+  przycisk.disabled = true;
+  $('#stan').replaceChildren(el('span', 'spinner'),
+    document.createTextNode(aiCzynne ? 'liczę + pytam model…' : 'liczę…'));
+
+  try {
+    /* ⚠ Pola `ai` NIE WYSYŁAMY — serwer ma domyślnie włączone i własny termin wygaśnięcia.
+       Gdyby strona je wysyłała, decyzja o koszcie siedziałaby w kodzie, który każdy może
+       podmienić w devtoolsach. */
+    const odp = await fetch('/api/waliduj', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tekst }),
+    });
+    const dane = await odp.json();
+    if (!odp.ok) { pokazBlad(dane.blad ?? `błąd ${odp.status}`); $('#raport').replaceChildren(); return; }
+    narysuj(dane);
+    $('#raport').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    pokazBlad(`nie udało się połączyć z serwerem: ${e.message}`);
+  } finally {
+    odswiezPrzycisk();
+    $('#stan').replaceChildren();
+  }
+}
+
+function pokazBlad(tekst) {
+  const d = el('div', 'blad');
+  d.append(el('strong', null, 'Nie dało się ocenić. '), zBacktickami(tekst));
+  $('#bledy').replaceChildren(d);
+}
+
+/* ── rysowanie raportu ─────────────────────────────────────────────────── */
+function narysuj(r, gdzie) {
+  /* ⚠ Wynik ma prawo być długi — jednoekranowe jest WEJŚCIE, nie raport. Przy rysowaniu
+     w historii nie ruszamy tej klasy: tam nie ma ekranu wejścia do rozciągania. */
+  if (!gdzie) document.body.classList.add('zraportem');
+  const cel = gdzie ?? $('#raport');
+  cel.replaceChildren();
+  const p = r.projekt;
+
+  /* nagłówek z tarczą */
+  const karta = el('div', 'karta');
+  karta.style.marginTop = '22px';
+  const rzad = el('div', 'wynikRzad');
+
+  const kolor = p.wynik >= 85 ? 'var(--good-hi)' : p.wynik >= 60 ? 'var(--warn)' : 'var(--crit-hi)';
+  const tarcza = el('div', 'tarcza');
+  tarcza.style.setProperty('--p', p.wynik);
+  tarcza.style.setProperty('--kolor', kolor);
+  const srodek = el('div');
+  srodek.append(el('b', null, String(Math.round(p.wynik))), el('small', null, 'na 100'));
+  tarcza.append(srodek);
+
+  const werdykt = el('div', 'werdykt');
+  werdykt.append(el('h2', null,
+    p.wynik >= 85 ? 'Model trzyma się praktyki Foundry'
+      : p.wynik >= 60 ? 'Model jest w porządku, ale ma miejsca do poprawy'
+        : p.wynik >= 35 ? 'Model odchodzi od praktyki w kilku miejscach naraz'
+          : 'Model łamie podstawowe zasady projektowe'));
+  const podpis = el('p');
+  podpis.style.color = 'var(--muted)';
+  podpis.style.fontSize = '13px';
+  const w = r.wejscie;
+  podpis.textContent =
+    `Zbadano ${w.objectTypes} ${odmien(w.objectTypes, 'typ obiektu', 'typy obiektów', 'typów obiektów')}, `
+    + `${w.properties} ${odmien(w.properties, 'właściwość', 'właściwości', 'właściwości')}, `
+    + `${w.linkTypes} ${odmien(w.linkTypes, 'link', 'linki', 'linków')}, `
+    + `${w.actionTypes} ${odmien(w.actionTypes, 'akcję', 'akcje', 'akcji')}, `
+    + `${w.interfaces} ${odmien(w.interfaces, 'interfejs', 'interfejsy', 'interfejsów')} `
+    + `(format: ${w.format}, składnia: ${w.skladnia}). `
+    + `Reguły w wersji ${p.wersjaRegul ?? r.wersja}.`;
+  werdykt.append(podpis);
+
+  const liczniki = el('div', 'liczniki');
+  /* ⚠ `podpowiedz` stoi w tym samym rzędzie, ale z jawnym „(0 pkt)” — czytelnik ma od razu
+     wiedzieć, że ta liczba nie zjadła mu ani punktu, więc nie ma czego „naprawiać na siłę”. */
+  for (const klasa of ['zlamanie', 'ryzyko', 'uwaga', 'podpowiedz']) {
+    const ile = p.podsumowanie[klasa] ?? 0;
+    if (klasa === 'podpowiedz' && ile === 0) continue;
+    const s = el('span');
+    s.append(el('span', `kropka k-${klasa}`), el('b', null, String(ile)),
+      document.createTextNode(` ${ETYKIETA_MNOGA[klasa](ile)}`));
+    liczniki.append(s);
+  }
+  /* ⚠ PRZYJĘTE Z POWODEM STOJĄ OSOBNO (od zestawu 1.2) i to jest cała ich treść: nie weszły do
+     wyniku, ale NIE ZNIKNĘŁY. Gdyby liczyły się razem z resztą, czytelnik nie odróżniłby
+     „nie ma tego u nas" od „jest, ale zdecydowaliśmy, że zostaje". Liczba pokazuje się tylko
+     wtedy, gdy model naprawdę coś przyjął — pusta lista nie ma o czym mówić. */
+  const przyjeteN = Array.isArray(p.przyjete) ? p.przyjete.length : 0;
+  if (przyjeteN > 0) {
+    const s = el('span');
+    s.title = 'znaleziska, przy których model wypisał powód — nie liczą się do wyniku, ale zostają widoczne';
+    s.append(el('span', 'kropka k-podpowiedz'), el('b', null, String(przyjeteN)),
+      document.createTextNode(' przyjęte z powodem'));
+    liczniki.append(s);
+  }
+  werdykt.append(liczniki);
+  rzad.append(tarcza, werdykt);
+  karta.append(rzad);
+
+  /* kategorie */
+  const katy = el('div');
+  katy.style.marginTop = '17px';
+  for (const k of p.kategorie) {
+    const wiersz = el('div', 'kat');
+    const nazwa = el('div', 'nazwa', NAZWA_KATEGORII[k.id] ?? k.id);
+    nazwa.append(el('span', 'opis', k.opis));
+    const pasek = el('div', 'pasek');
+    const wypelnienie = el('i');
+    const udzial = k.budzet ? (k.punkty / k.budzet) * 100 : 100;
+    wypelnienie.style.width = `${udzial}%`;
+    pasek.style.setProperty('--kolor',
+      udzial >= 85 ? 'var(--good-hi)' : udzial >= 50 ? 'var(--warn)' : 'var(--crit-hi)');
+    pasek.append(wypelnienie);
+    const pkt = el('div', 'pkt', `${k.punkty} / ${k.budzet}${k.obciete ? ' *' : ''}`);
+    pkt.title = k.obciete
+      ? `znalezisk było więcej, niż kategoria mogła kosztować (surowo: −${k.strataSurowa})`
+      : `zbadano ${k.zbadane} reguł`;
+    wiersz.append(nazwa, pasek, pkt);
+    katy.append(wiersz);
+  }
+  karta.append(katy);
+  cel.append(karta);
+
+  /* znaleziska */
+  if (p.znaleziska.length) {
+    cel.append(el('h2', null, 'Znaleziska'));
+    for (const z of p.znaleziska) {
+      const d = el('details', 'znal');
+      d.style.setProperty('--kolor', KOLOR[z.klasa]);
+      if (z.klasa === 'zlamanie') d.open = true;
+      const sum = el('summary');
+      /* ⚠ Zdanie w JEDNYM spanie: `summary` jest flexem, a gołe węzły z `zBacktickami` stawały się
+         osobnymi kolumnami — zdanie z trzema nazwami w backtickach łamało się w pięć słupków. */
+      const zdanie = el('span');
+      zdanie.append(zBacktickami(z.co));
+      sum.append(el('span', 'regId', z.id), zdanie);
+      d.append(sum);
+
+      const tresc = el('div', 'tresc');
+      const dl = el('dl');
+      const dodaj = (etykieta, wartosc, klasa) => {
+        if (!wartosc) return;
+        dl.append(el('dt', null, etykieta));
+        const dd = el('dd', klasa);
+        dd.append(zBacktickami(wartosc));
+        dl.append(dd);
+      };
+      dodaj('gdzie', z.gdzie, 'gdzie');
+      dodaj('dlaczego', z.dlaczego);
+      dodaj('jak naprawić', z.jak);
+      if (z.prog) dodaj('próg', z.prog, 'gdzie');
+      dodaj('źródło', z.zrodlo, 'zrodlo');
+      tresc.append(dl);
+      d.append(tresc);
+      cel.append(d);
+    }
+  } else {
+    const ok = el('div', 'karta');
+    ok.style.marginTop = '14px';
+    ok.append(el('strong', null, 'Zero znalezisk. '),
+      document.createTextNode('Model przechodzi wszystkie reguły projektowe, które to narzędzie umie sprawdzić.'));
+    cel.append(ok);
+  }
+
+  /* blok AI */
+  if (r.ai) {
+    cel.append(el('h2', null, 'Osąd modelu językowego'));
+    const k = el('div', 'karta');
+    if (r.ai.blad) {
+      k.append(zBacktickami(`Nie udało się: ${r.ai.blad}`));
+    } else {
+      const u = el('p');
+      u.style.color = 'var(--alert)';
+      u.style.fontSize = '12.5px';
+      u.textContent = r.ai.uwaga;
+      k.append(u);
+
+      /* ⚠ RACHUNEK NA WIERZCHU. Narzędzie, które woła cudzy model za cudze pieniądze, ma
+         pokazywać, ile to kosztowało — inaczej „dołóż osąd AI” jest pustym przyciskiem,
+         a rachunek przychodzi na koniec miesiąca bez wyjaśnienia. */
+      const z_ = r.ai.zuzycie;
+      const metka = [];
+      if (r.ai.tryb) metka.push(r.ai.tryb === 'skan' ? 'pełny skan' : 'klasyfikacja typów i akcji');
+      if (r.ai.model) metka.push(r.ai.model);
+      if (r.ai.zCache) metka.push('z pamięci podręcznej — bez zapytania do modelu');
+      else if (z_) {
+        metka.push(`${z_.prompt_tokens ?? '?'} tok. wejścia + ${z_.completion_tokens ?? '?'} tok. odpowiedzi`);
+      }
+      if (metka.length) {
+        const m = el('p', null, metka.join(' · '));
+        m.style.fontSize = '12.5px';
+        m.style.color = 'var(--muted)';
+        k.append(m);
+      }
+
+      if (typeof r.ai.ocenionych === 'number') {
+        const ile = (t) => (Array.isArray(t) ? t.length : 0);
+        /* ⚠ Etykieta przed liczbą, nie po niej: „1 rzeczowniki domeny” to usterka, której
+           nie da się naprawić doborem słowa, bo ta sama etykieta obsługuje 0, 1, 2 i 25. */
+        const linia = `Sklasyfikowano ${r.ai.ocenionych} ${odmien(r.ai.ocenionych, 'typ', 'typy', 'typów')} — `
+          + `maszyneria narzędzia: ${ile(r.ai.maszyneria)} · domena: ${ile(r.ai.domena)}`
+          + (ile(r.ai.niepewne) ? ` · nierozstrzygnięte: ${ile(r.ai.niepewne)}` : '');
+        k.append(el('p', null, linia));
+        if (r.ai.pominietychTypow > 0) {
+          const t = r.ai.pominietychTypow;
+          k.append(el('p', null, `⚠ ${t} ${odmien(t, 'typ', 'typy', 'typów')} `
+            + `${odmien(t, 'nie wszedł', 'nie weszły', 'nie weszło')} do oceny (limit wielkości zapytania).`));
+        }
+        if (r.ai.pominieto > 0) {
+          const n = r.ai.pominieto;
+          k.append(el('p', null, `⚠ ${n} ${odmien(n, 'nazwa', 'nazwy', 'nazw')} z odpowiedzi modelu `
+            + `${odmien(n, 'nie była', 'nie były', 'nie było')} w wysłanej tabeli — odrzucone.`));
+        }
+      }
+
+      if (r.ai.podejrzenKodu > 0) {
+        const odrz = r.ai.odrzuconePodejrzenia ?? [];
+        k.append(el('p', null, `Podejrzenia licznika (próg albo nazwa, 0 pkt): ${r.ai.podejrzenKodu}`
+          + ` · model uznał za uzasadnione: ${odrz.length}`));
+        if (odrz.length) {
+          k.append(el('p', null, `Wycofane po sprawdzeniu: ${odrz.join(' · ')}`));
+        }
+      }
+      if (r.ai.czytelnosc) k.append(el('p', null, r.ai.czytelnosc));
+      for (const z of r.ai.znaleziska ?? []) {
+        const d = el('details', 'znal');
+        d.style.setProperty('--kolor', 'var(--alert)');
+        const sum = el('summary');
+        const zdanie = el('span');
+        zdanie.append(zBacktickami(z.element ? `\`${z.element}\` — ${z.co}` : z.co));
+        sum.append(el('span', 'regId', z.klasa), zdanie);
+        d.append(sum);
+        const tresc = el('div', 'tresc');
+        const dl = el('dl');
+        /* ⚠ `zBacktickami`, a nie goły tekst: treść znalezisk AI składa SERWER i pisze w niej
+           `visibility: hidden` w backtickach — tak samo jak reguły kodu. Bez tego na ekranie
+           stoją surowe apostrofy i wygląda to na usterkę renderera. */
+        const dodaj = (etykieta, wartosc, klasa) => {
+          if (!wartosc) return;
+          dl.append(el('dt', null, etykieta));
+          const dd = el('dd', klasa);
+          dd.append(zBacktickami(wartosc));
+          dl.append(dd);
+        };
+        /* ⚠ Neutralna etykieta: ten sam blok niesie znaleziska o TYPACH i o AKCJACH,
+           a „których typów” nad listą akcji czyta się jak pomyłka narzędzia. */
+        if (z.elementy?.length) dodaj('czego dotyczy', z.elementy.join(' · '), 'gdzie');
+        dodaj('dlaczego', z.dlaczego);
+        dodaj('jak', z.jak);
+        if (z.zrodlo !== '—') dodaj('źródło', z.zrodlo, 'zrodlo');
+        tresc.append(dl); d.append(tresc);
+        k.append(d);
+      }
+      /* ⚠ NAJWAŻNIEJSZY PLON SKANU: nazwana KLASA problemu, której reguły nie obejmują.
+         Pojedyncze znalezisko naprawia jeden model; klasa daje się zamienić w regułę. */
+      if (r.ai.klasyPrzeoczen?.length) {
+        k.append(el('h3', null, 'Czego nie łapią nasze reguły'));
+        const ul = el('ul');
+        for (const kl of r.ai.klasyPrzeoczen) ul.append(el('li', null, kl));
+        k.append(ul);
+      }
+      if (r.ai.pytania?.length) {
+        k.append(el('h3', null, 'Pytania do właściciela modelu'));
+        const ul = el('ul');
+        for (const p2 of r.ai.pytania) ul.append(el('li', null, p2));
+        k.append(ul);
+      }
+    }
+    cel.append(k);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   HISTORIA SPRAWDZEŃ — po co to jest i dlaczego stoi za kluczem
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   Zegarek w pasku otwiera listę wszystkich uruchomień: po lewej wynik (kolorem), po prawej
+   data. Klik wchodzi w pojedyncze sprawdzenie i pokazuje ten sam raport co na świeżo, a pod
+   nim WRZUCONY PLIK. Do tego to służy: żeby dało się wrócić do modelu, który dostał dziwny
+   wynik, i zobaczyć, co go wywołało.
+   ⚠ NIEUDANE SPRAWDZENIA SĄ NA TEJ LIŚCIE TAK SAMO — zamiast liczby stoi przy nich
+   wykrzyknik, a w środku treść błędu. To one są najcenniejsze: plik, którego nie umieliśmy
+   przeczytać, mówi o narzędziu więcej niż dziesięć, które przeszły.
+   ⚠ ZA KLUCZEM, BO WYCHODZI STĄD CUDZA ONTOLOGIA. Adres jest publiczny; bez bramki podgląd
+   zamieniłby zbiór do poprawiania reguł w czyjś wyciek. Klucz podaje się RAZ, `?klucz=…`
+   w adresie, i zostaje w tej przeglądarce.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+const KLUCZ = 'walidator:klucz-historii';
+let kluczHistorii = (() => {
+  const zAdresu = new URL(window.location).searchParams.get('klucz');
+  if (zAdresu) {
+    try { localStorage.setItem(KLUCZ, zAdresu); } catch { /* prywatne okno — trudno */ }
+    /* Klucz znika z paska adresu, żeby nie pojechał dalej w kopiowanym linku. */
+    history.replaceState('', '', window.location.pathname + window.location.hash);
+    return zAdresu;
+  }
+  try { return localStorage.getItem(KLUCZ) ?? ''; } catch { return ''; }
+})();
+
+const zKluczem = (sciezka) => fetch(sciezka, kluczHistorii
+  ? { headers: { authorization: `Bearer ${kluczHistorii}` } } : undefined);
+
+const dataPL = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso ?? '—')
+    : d.toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+
+function wczytajHistorie() {
+  const opis = $('#historiaOpis');
+  const lista = $('#historiaLista');
+  $('#historiaWpis').replaceChildren();
+  if (!kluczHistorii) {
+    opis.textContent = 'Historia jest zamknięta kluczem — otwórz stronę z ?klucz=… raz, '
+      + 'a zostanie zapamiętany w tej przeglądarce.';
+    lista.replaceChildren();
+    return;
+  }
+  opis.textContent = 'wczytuję…';
+  zKluczem('/api/historia?ile=200').then((r) => {
+    if (r.status === 404) throw new Error('klucz nie pasuje albo historia jest wyłączona');
+    return r.json();
+  }).then(({ wpisy }) => {
+    opis.textContent = `${wpisy.length} sprawdzeń, najnowsze na górze. Kliknij, żeby zobaczyć wynik i wrzucony plik.`;
+    lista.replaceChildren(...wpisy.map(wierszHistorii));
+  }).catch((e) => {
+    opis.textContent = `nie udało się wczytać historii: ${e.message}`;
+    lista.replaceChildren();
+  });
+}
+
+function wierszHistorii(w) {
+  const wiersz = el('button', 'hWiersz');
+  const bl = Boolean(w.blad);
+  const wynik = el('span', `hWynik ${bl ? 'zle' : w.wynik >= 85 ? 'ok' : w.wynik >= 60 ? 'sred' : 'slabo'}`,
+    bl ? '!' : (w.wynik ?? '—'));
+  const srodek = el('span', 'hOpis');
+  srodek.append(el('strong', null, w.ontology || (bl ? 'nie dało się ocenić' : '—')));
+  srodek.append(el('small', null, bl ? String(w.blad).slice(0, 90)
+    : `${w.typow ?? '—'} typów · ${w.linkow ?? '—'} linków · ${w.akcji ?? '—'} akcji`
+      + `${w.ai_model ? ` · ${w.ai_model}` : ''}`));
+  wiersz.append(wynik, srodek, el('span', 'hData', dataPL(w.kiedy)));
+  wiersz.onclick = () => otworzWpis(w.id);
+  return wiersz;
+}
+
+function otworzWpis(id) {
+  const cel = $('#historiaWpis');
+  cel.replaceChildren(el('p', 'lead', 'wczytuję…'));
+  zKluczem(`/api/historia/${id}`).then((r) => r.json()).then((w) => {
+    cel.replaceChildren();
+    cel.append(el('h3', null, `Sprawdzenie #${w.id} · ${dataPL(w.kiedy)}`));
+    if (w.blad) {
+      const d = el('div', 'blad');
+      d.append(el('strong', null, 'Nie dało się ocenić. '), zBacktickami(w.blad));
+      cel.append(d);
+    } else if (w.raport) {
+      const raport = el('div');
+      cel.append(raport);
+      narysuj(w.raport, raport);
+    }
+    /* ⚠ SCHEMA NA DOLE — po to tu przychodzimy. Bez wrzuconego pliku wynik sprzed tygodnia
+       jest liczbą bez przedmiotu i nie da się z niego wyciągnąć reguły. */
+    cel.append(el('h3', null, 'Wrzucony plik'));
+    cel.append(el('pre', 'kod', w.tresc ?? '(treść nie została zapisana — HISTORIA_TRESC=0)'));
+    cel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }).catch((e) => cel.replaceChildren(el('p', 'lead', `nie udało się wczytać: ${e.message}`)));
+}
+
+/* Dopiero teraz — wszystko, czego `widok()` może potrzebować, jest już zainicjowane. */
+widok(zHasha());
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   SIATKA KROPEK — tło reagujące na kursor
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   Cała strona stoi na siatce drobnych kropek; wokół kursora rosną liniowo, więc wygląda to
+   jak kula światła przesuwana myszą.
+
+   ⚠ DWIE KANWY, NIE JEDNA. Pełna siatka na monitorze 1440p to ~5000 kropek — rysowanie ich
+   w każdej klatce marnuje baterię na ozdobę. Tło rysuje się RAZ do kanwy pomocniczej, a co
+   klatkę przerysowujemy wyłącznie kwadrat wokół kursora (~200 kropek).
+   ⚠ RYSUJEMY TYLKO, GDY COŚ SIĘ RUSZYŁO. Bez tego `requestAnimationFrame` kręci się 60 razy
+   na sekundę nad nieruchomym obrazem.
+   ⚠ BEZ KURSORA NIE MA EFEKTU: na dotyku (`pointer: coarse`) i przy `prefers-reduced-motion`
+   zostaje sama statyczna siatka. Ozdoba nie ma prawa kosztować baterii komuś, kto jej nawet
+   nie zobaczy, ani ruszać się komuś, kto prosił, żeby się nie ruszało.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+(() => {
+  const kanwa = document.getElementById('siatka');
+  if (!kanwa) return;
+  const ctx = kanwa.getContext('2d', { alpha: true });
+  const tlo = document.createElement('canvas');
+  const ctxTla = tlo.getContext('2d');
+
+  const KROK = 26;          // odstęp siatki w px
+  const R = 165;            // zasięg „kuli” wokół kursora
+  /* ⚠ `MALA` NIE SCHODZI PONIŻEJ 1 px. Przy 0,7 px kropka tła rozmazuje się
+     antyaliasingiem na dwa piksele po ~⅓ krycia i na ekranie bez retiny (dpr 1)
+     po prostu JEJ NIE WIDAĆ — wyglądało to jak brak efektu, nie jak subtelność. */
+  const MALA = 1.4;         // bok kropki z dala
+  const DUZA = 3.2;         // promień kropki pod kursorem
+  const bezRuchu = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const bezKursora = matchMedia('(pointer: coarse)').matches;
+
+  let dpr = 1; let szer = 0; let wys = 0;
+  let mx = -9999; let my = -9999;
+  let poprzednie = null;    // ostatnio przerysowany kwadrat — do wyczyszczenia
+  let czeka = false;
+  let kolor = 'rgba(255,255,255,.18)';
+  let kolorMocny = '#3987e5';
+
+  const czytajKolory = () => {
+    const st = getComputedStyle(document.documentElement);
+    kolor = st.getPropertyValue('--border-strong').trim() || kolor;
+    kolorMocny = st.getPropertyValue('--accent').trim() || kolorMocny;
+  };
+
+  function rysujTlo() {
+    ctxTla.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctxTla.clearRect(0, 0, szer, wys);
+    ctxTla.fillStyle = kolor;
+    for (let x = KROK / 2; x < szer; x += KROK) {
+      for (let y = KROK / 2; y < wys; y += KROK) {
+        /* `fillRect` zamiast `arc`: przy tym rozmiarze nie widać różnicy, a jest dużo taniej. */
+        ctxTla.fillRect(x - MALA / 2, y - MALA / 2, MALA, MALA);
+      }
+    }
+  }
+
+  function wymiary() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    szer = window.innerWidth; wys = window.innerHeight;
+    for (const k of [kanwa, tlo]) { k.width = Math.round(szer * dpr); k.height = Math.round(wys * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    czytajKolory();
+    rysujTlo();
+    ctx.clearRect(0, 0, szer, wys);
+    ctx.drawImage(tlo, 0, 0, szer, wys);
+    poprzednie = null;
+  }
+
+  function klatka() {
+    czeka = false;
+    /* Wyczyść poprzednią kulę i odtwórz w tym miejscu samo tło — bez przerysowywania całości. */
+    const przywroc = (p) => {
+      if (!p) return;
+      ctx.clearRect(p.x, p.y, p.w, p.h);
+      ctx.drawImage(tlo, p.x * dpr, p.y * dpr, p.w * dpr, p.h * dpr, p.x, p.y, p.w, p.h);
+    };
+    przywroc(poprzednie);
+
+    const pole = { x: mx - R - KROK, y: my - R - KROK, w: (R + KROK) * 2, h: (R + KROK) * 2 };
+    const x0 = Math.floor((pole.x - KROK / 2) / KROK) * KROK + KROK / 2;
+    const y0 = Math.floor((pole.y - KROK / 2) / KROK) * KROK + KROK / 2;
+    for (let x = x0; x <= pole.x + pole.w; x += KROK) {
+      for (let y = y0; y <= pole.y + pole.h; y += KROK) {
+        if (x < 0 || y < 0 || x > szer || y > wys) continue;
+        const d = Math.hypot(x - mx, y - my);
+        if (d > R) continue;
+        /* LINIOWO: pod kursorem największa, na krawędzi zasięgu równa tłu. */
+        const t = 1 - d / R;
+        const r = MALA + (DUZA - MALA) * t;
+        ctx.beginPath();
+        ctx.fillStyle = t > 0.55 ? kolorMocny : kolor;
+        ctx.globalAlpha = 0.35 + 0.65 * t;
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    poprzednie = pole;
+  }
+
+  const ruch = (e) => {
+    mx = e.clientX; my = e.clientY;
+    if (czeka) return;
+    czeka = true;
+    requestAnimationFrame(klatka);
+  };
+
+  wymiary();
+  let zmiana;
+  window.addEventListener('resize', () => { clearTimeout(zmiana); zmiana = setTimeout(wymiary, 120); });
+  /* Motyw zmienia kolory tokenów — siatka musi je przeczytać na nowo. */
+  new MutationObserver(wymiary).observe(document.documentElement, { attributes: true, attributeFilter: ['data-motyw'] });
+  if (!bezRuchu && !bezKursora) {
+    window.addEventListener('pointermove', ruch, { passive: true });
+    window.addEventListener('pointerleave', () => { mx = -9999; my = -9999; requestAnimationFrame(klatka); });
+  }
+})();
+</script>
+</body>
+</html>

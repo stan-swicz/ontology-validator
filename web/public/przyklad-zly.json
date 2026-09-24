@@ -1,0 +1,492 @@
+{
+  "_": "PRZYKŁAD CELOWO ZŁY — pokazuje, jak wygląda raport dla modelu, który łamie zasady. Każdy element łamie co najmniej jedną regułę: silos systemowy (ErpOrderData), trzy kopie tego samego bytu (…Customer), wersja w nazwie (ContractV2), God Object z dyskryminatorem (Asset), klucz w pustkę (Item), jedenaście akcji set[Pole] i akcja bez parametrów, która powinna być rurą (recalculateAllTotals).",
+  "ontology": "przyklad-zly",
+  "version": "1.0",
+  "objectTypes": [
+    {
+      "apiName": "ErpOrderData",
+      "primaryKey": "rowNum",
+      "properties": [
+        {
+          "apiName": "rowNum",
+          "type": "integer"
+        },
+        {
+          "apiName": "value",
+          "type": "decimal"
+        },
+        {
+          "apiName": "type",
+          "type": "string"
+        },
+        {
+          "apiName": "status",
+          "type": "string"
+        },
+        {
+          "apiName": "date",
+          "type": "date"
+        },
+        {
+          "apiName": "customer_name",
+          "type": "string"
+        },
+        {
+          "apiName": "customer_email",
+          "type": "string"
+        },
+        {
+          "apiName": "customerPhone",
+          "type": "string"
+        },
+        {
+          "apiName": "addressStreet",
+          "type": "string"
+        },
+        {
+          "apiName": "addressCity",
+          "type": "string"
+        },
+        {
+          "apiName": "addressPostalCode",
+          "type": "string"
+        },
+        {
+          "apiName": "addressCountry",
+          "type": "string"
+        },
+        {
+          "apiName": "_crm_extracted_at",
+          "type": "timestamp"
+        },
+        {
+          "apiName": "last_etl_update",
+          "type": "timestamp"
+        },
+        {
+          "apiName": "schema_version",
+          "type": "string"
+        },
+        {
+          "apiName": "itemCount",
+          "type": "integer"
+        },
+        {
+          "apiName": "price",
+          "type": "decimal"
+        },
+        {
+          "apiName": "dateOfDelivery",
+          "type": "date"
+        },
+        {
+          "apiName": "shippedDate",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "apiName": "SalesCustomer",
+      "primaryKey": "id",
+      "titleProperty": "customerName",
+      "properties": [
+        {
+          "apiName": "id",
+          "type": "string"
+        },
+        {
+          "apiName": "customerName",
+          "type": "string"
+        },
+        {
+          "apiName": "customerEmail",
+          "type": "string"
+        },
+        {
+          "apiName": "customerPhone",
+          "type": "string"
+        },
+        {
+          "apiName": "salesStatus",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "apiName": "SupportCustomer",
+      "primaryKey": "id",
+      "titleProperty": "customerName",
+      "properties": [
+        {
+          "apiName": "id",
+          "type": "string"
+        },
+        {
+          "apiName": "customerName",
+          "type": "string"
+        },
+        {
+          "apiName": "customerEmail",
+          "type": "string"
+        },
+        {
+          "apiName": "customerPhone",
+          "type": "string"
+        },
+        {
+          "apiName": "supportTier",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "apiName": "BillingCustomer",
+      "primaryKey": "id",
+      "titleProperty": "customerName",
+      "properties": [
+        {
+          "apiName": "id",
+          "type": "string"
+        },
+        {
+          "apiName": "customerName",
+          "type": "string"
+        },
+        {
+          "apiName": "customerEmail",
+          "type": "string"
+        },
+        {
+          "apiName": "customerPhone",
+          "type": "string"
+        },
+        {
+          "apiName": "billingAccountId",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "apiName": "ContractV2",
+      "primaryKey": "contractId",
+      "titleProperty": "contractId",
+      "properties": [
+        {
+          "apiName": "contractId",
+          "type": "string"
+        },
+        {
+          "apiName": "salary",
+          "type": "decimal"
+        }
+      ]
+    },
+    {
+      "apiName": "Item",
+      "primaryKey": "missingField",
+      "properties": [
+        {
+          "apiName": "sku",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "apiName": "Asset",
+      "primaryKey": "assetId",
+      "titleProperty": "assetId",
+      "status": "active",
+      "properties": [
+        {
+          "apiName": "assetId",
+          "type": "string"
+        },
+        {
+          "apiName": "kind",
+          "type": "enum(vehicle|software|building|instrument)"
+        },
+        {
+          "apiName": "reportCount",
+          "type": "integer"
+        }
+      ],
+      "kinds": [
+        "vehicle",
+        "software",
+        "building",
+        "instrument"
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "apiName": "related",
+      "from": "ErpOrderData",
+      "to": "SalesCustomer",
+      "cardinality": "MANY_TO_MANY",
+      "status": "active"
+    },
+    {
+      "apiName": "items",
+      "from": "ErpOrderData",
+      "to": "SalesCustomer",
+      "cardinality": "MANY_TO_ONE",
+      "reverseName": "orders"
+    }
+  ],
+  "actionTypes": [
+    {
+      "apiName": "setStatus",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.status"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "status",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setValue",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.value"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "value",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setType",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.type"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "type",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setDate",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.date"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "date",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setPrice",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.price"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "price",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setCustomerName",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.customer_name"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "customer_name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setCustomerEmail",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.customer_email"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "customer_email",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setCustomerPhone",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.customerPhone"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "customerPhone",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setAddressStreet",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.addressStreet"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "addressStreet",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setAddressCity",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.addressCity"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "addressCity",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "setItemCount",
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.itemCount"
+        }
+      ],
+      "parameters": [
+        {
+          "apiName": "target",
+          "type": "reference",
+          "required": true
+        },
+        {
+          "apiName": "itemCount",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "apiName": "recalculateAllTotals",
+      "parameters": [],
+      "rules": [
+        {
+          "op": "modify",
+          "target": "ErpOrderData.itemCount"
+        }
+      ]
+    }
+  ],
+  "interfaces": [
+    {
+      "apiName": "Trackable",
+      "properties": [
+        {
+          "apiName": "status",
+          "type": "string"
+        }
+      ],
+      "implementedBy": []
+    }
+  ]
+}

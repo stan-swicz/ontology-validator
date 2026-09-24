@@ -1,0 +1,95 @@
+{
+  "ontology": "sklep",
+  "version": "0.1",
+  "objectTypes": [
+    {
+      "apiName": "Order",
+      "displayName": "Zamówienie",
+      "description": "Zamówienie klienta: od przyjęcia do wydania. Opis jest długi celowo, żeby emiter złamał go na kilka linii i żeby było widać, że zwijanie nie gubi ani nie dokłada spacji.",
+      "primaryKey": "orderId",
+      "titleProperty": "orderNumber",
+      "status": "active",
+      "visibility": "prominent",
+      "properties": [
+        {
+          "apiName": "orderId",
+          "type": "string",
+          "required": true,
+          "description": "Klucz zamówienia."
+        },
+        {
+          "apiName": "orderNumber",
+          "type": "string",
+          "required": true,
+          "description": "Numer, którym o zleceniu mówi handlowiec i hala. Tekst wystarczająco długi, żeby emiter przeniósł go do następnej linii razem z polskimi znakami: ąćęłńóśźż."
+        },
+        {
+          "apiName": "dueDate",
+          "type": "timestamp",
+          "required": false,
+          "description": null
+        }
+      ]
+    },
+    {
+      "apiName": "Task",
+      "displayName": "Zadanie",
+      "description": "Jedno wykonanie kroku na zasobie.",
+      "primaryKey": "taskId",
+      "titleProperty": "taskId",
+      "status": "active",
+      "visibility": "normal",
+      "properties": [
+        {
+          "apiName": "taskId",
+          "type": "string",
+          "required": true,
+          "description": "Klucz zadania."
+        }
+      ]
+    }
+  ],
+  "linkTypes": [
+    {
+      "apiName": "tasks",
+      "from": "Order",
+      "to": "Task",
+      "cardinality": "ONE_TO_MANY",
+      "reverseName": "order",
+      "description": "Zadania zamówienia.",
+      "status": "active"
+    }
+  ],
+  "actionTypes": [
+    {
+      "apiName": "planOrder",
+      "displayName": "Zaplanuj zamówienie",
+      "description": "Stawia zamówienie w planie.",
+      "status": "active",
+      "revertible": true,
+      "parameters": [
+        {
+          "apiName": "order",
+          "type": "reference",
+          "required": true,
+          "description": "Zamówienie."
+        }
+      ],
+      "rules": [
+        {
+          "op": "modify",
+          "target": "Task.taskId",
+          "description": "Zapisuje przydział."
+        }
+      ],
+      "submissionCriteria": [
+        {
+          "id": "order-present",
+          "on": "order",
+          "operator": "not-null",
+          "message": "Bez zamówienia nie ma czego planować."
+        }
+      ]
+    }
+  ]
+}
