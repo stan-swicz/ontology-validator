@@ -291,7 +291,7 @@ describe('silnik 1.2 — znalezisko przyjęte z powodem', () => {
     expect(r.znaleziska.some((x) => x.id === 'P01'), 'znalezisko o konkretnym wpisie zniknęło').toBe(true);
   });
 
-  it('numer zestawu reguł podbity — zestaw 1.9 bada rzeczy, których 1.3 nie badał (1.4–1.8 scalone w nim)', () => {
+  it('numer zestawu reguł podbity — zestaw 2.0 bada rzeczy, których 1.3 nie badał (1.4–1.9 scalone w nim)', () => {
     /* ⚠ 1.4 (3.0 · K5c, D10b): silnik nauczył się TYPU WARTOŚCI. Do 1.3 widział wyłącznie napis
        typu i `sharedPropertyType`, więc typ wskazany polem `valueType` był NIEWIDZIALNY — wypadał
        jako sierota (`P46`), choć kanon bierze go wprost. Przy okazji `P44` przestało dotyczyć
@@ -323,9 +323,13 @@ describe('silnik 1.2 — znalezisko przyjęte z powodem', () => {
        spoza kontraktu). Do 1.8 model łamiący te zasady dostawał 100/100 WYŁĄCZNIE dlatego, że
        zestaw nie miał o nich reguł — cisza narzędzia, nie zgodność modelu. `P82`/`P83` są
        ZAREZERWOWANE dla dwóch reguł klucza obcego, które przychodzą osobnym zestawem. */
-    expect(WERSJA).toBe('1.9');
+    /* ⚠ 2.0 (25.09.2026; po 1.9 idzie 2.0, nie 1.10): `P82` (klucz obcy nie jest właściwością albo
+       typ ≠ typ klucza głównego celu, `docs:3915`, `docs:3923`), `P83` (nazwa klucza obcego = nazwa
+       strony linku, `docs:3962`), `P86` przepuszcza tabelę łączącą `joinTable` (`docs:3934–3944`),
+       a `P11`/`P27` przestają liczyć kolumny kluczy obcych. */
+    expect(WERSJA).toBe('2.0');
     for (const id of ['P55', 'P56', 'P57', 'P58', 'P64', 'P66', 'P72', 'P73', 'P75', 'P77', 'P79', 'P81',
-      'P84', 'P85', 'P86', 'P87', 'P88', 'P89'])
+      'P82', 'P83', 'P84', 'P85', 'P86', 'P87', 'P88', 'P89'])
       expect(REGULY.map((r) => r.id), `${id} nie stoi w spisie reguł — narzędzie bada coś, o czym nie mówi`).toContain(id);
   });
 });
@@ -3510,12 +3514,12 @@ describe('P85 · typ współdzielony użyty na ≤1 typie obiektu (docs:3680, do
 });
 
 describe('P86 · N:M edytowany akcją bez tabeli łączącej (docs:3938)', () => {
-  const zLinkiem = (backingObjectType, edytujaca, funkcyjna) => {
+  const zLinkiem = (backingObjectType, edytujaca, funkcyjna, joinTable) => {
     const o = czysta();
     o.linkTypes.push({
       apiName: 'tags', from: 'Invoice', to: 'Customer', cardinality: 'MANY_TO_MANY',
       reverseName: 'invoices2', status: 'active', displayName: 'Tag', reverseDisplayName: 'Faktury',
-      description: 'Relacja testowa N:M.', backingObjectType,
+      description: 'Relacja testowa N:M.', backingObjectType, joinTable,
     });
     if (edytujaca) {
       o.actionTypes.push({
@@ -3544,6 +3548,21 @@ describe('P86 · N:M edytowany akcją bez tabeli łączącej (docs:3938)', () =>
 
   it('MILCZY, gdy link ma `backingObjectType`', () => {
     expect(zLinkiem('InvoiceTag', true, false).has('P86')).toBe(false);
+  });
+
+  /* ⚠ 2.0: zaplecze N:M ma w kanonie pole Foundry — tabelę łączącą `joinTable` („Join table
+     dataset”, „Generate join table”, `docs:3934–3944`). Do 1.9 reguła znała tylko `backingObjectType`. */
+  it('MILCZY, gdy link ma tabelę łączącą `joinTable` (wygenerowaną albo wskazany dataset)', () => {
+    expect(zLinkiem(undefined, true, false, 'generate').has('P86')).toBe(false);
+    expect(zLinkiem(undefined, true, true, { dataset: 'tags_join', fromColumn: 'invoice', toColumn: 'customer' })
+      .has('P86')).toBe(false);
+  });
+
+  it('szablon Foundry niesie `joinTable` do kanonu (i snake_case `join_table`)', () => {
+    const m = (l) => normalizuj({ objectTypes: [{ apiName: 'A' }, { apiName: 'B' }], linkTypes: [l] }).linkTypes[0].joinTable;
+    expect(m({ apiName: 'ab', from: 'A', to: 'B', cardinality: 'N:M', joinTable: 'generate' })).toBe('generate');
+    expect(m({ apiName: 'ab', from: 'A', to: 'B', cardinality: 'N:M', join_table: { dataset: 'ab_join' } })).toEqual({ dataset: 'ab_join' });
+    expect(m({ apiName: 'ab', from: 'A', to: 'B', cardinality: 'N:M' })).toBeUndefined();
   });
 });
 
@@ -3675,5 +3694,74 @@ describe('P89 · akcja na interfejsie zmienia właściwość spoza kontraktu (do
       targetField: { kind: 'objectProperty', objectType: 'Invoice', property: 'invoiceNumber' },
     }];
     expect(trafienia(o).has('P89')).toBe(false);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   P82 i P83 (zestaw 2.0) — KLUCZ OBCY JEST WŁAŚCIWOŚCIĄ
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   „A foreign key is a property on one object type that stores the value of another object type's
+   primary key” (`docs:3915`); kreator wiąże je, gdy „the property types of both objects match”
+   (`docs:3923`); strona linku jest członkiem obiektu (`docs:3962`).
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('P82 / P83 — klucz obcy krawędzi', () => {
+  /** Czysta ontologia z kluczem obcym krawędzi `customer` zapisanym jako właściwość faktury. */
+  const zKluczem = () => {
+    const o = czysta();
+    o.objectTypes[0].properties.push({ apiName: 'customerId', type: 'string', description: 'Klucz obcy do kontrahenta.' });
+    o.linkTypes[0].foreignKeyProperty = 'customerId';
+    o.linkTypes[0].foreignKeyObjectType = 'Invoice';
+    return o;
+  };
+
+  it('P82 · milczy, gdy klucz obcy jest właściwością z typem klucza głównego celu', () => {
+    expect(trafienia(zKluczem()).has('P82')).toBe(false);
+    expect(trafienia(zKluczem()).has('P83')).toBe(false);
+  });
+
+  it('P82 · krzyczy, gdy krawędź z końcem „jeden” nie wskazuje właściwości — brak, `"?"` albo nazwa w pustkę', () => {
+    const bez = zKluczem();
+    delete bez.linkTypes[0].foreignKeyProperty;
+    expect(trafienia(bez).has('P82'), 'brak nazwy klucza obcego').toBe(true);
+    const pyt = zKluczem();
+    pyt.linkTypes[0].foreignKeyProperty = '?';
+    expect(trafienia(pyt).has('P82'), '`"?"` — klucz obcy bez właściwości').toBe(true);
+    const wPustke = zKluczem();
+    wPustke.objectTypes[0].properties = wPustke.objectTypes[0].properties.filter((p) => p.apiName !== 'customerId');
+    expect(trafienia(wPustke).has('P82'), 'nazwa, której nie ma w `properties`').toBe(true);
+  });
+
+  it('P82 · krzyczy, gdy typ klucza obcego ≠ typ klucza głównego celu (docs:3923)', () => {
+    const o = zKluczem();
+    o.objectTypes[0].properties.find((p) => p.apiName === 'customerId').type = 'integer';
+    expect(trafienia(o).has('P82')).toBe(true);
+  });
+
+  it('P82 · `N:M` jest poza regułą — tam relację niesie tabela łącząca (docs:4917)', () => {
+    const o = czysta();
+    o.linkTypes[0].cardinality = 'MANY_TO_MANY';
+    expect(trafienia(o).has('P82')).toBe(false);
+  });
+
+  it('P82 · przy celu-kontrakcie kolumna TYPU też musi być właściwością', () => {
+    const o = zKluczem();
+    o.linkTypes[0].foreignKeyTypeProperty = 'customerType';
+    expect(trafienia(o).has('P82'), 'kolumna typu w pustkę').toBe(true);
+    o.objectTypes[0].properties.push({ apiName: 'customerType', type: 'string', description: 'Typ implementatora.' });
+    expect(trafienia(o).has('P82')).toBe(false);
+  });
+
+  it('P83 · krzyczy, gdy klucz obcy nazywa się jak strona linku na tym samym typie (docs:3962)', () => {
+    const o = zKluczem();
+    o.objectTypes[0].properties.find((p) => p.apiName === 'customerId').apiName = 'customer';
+    o.linkTypes[0].foreignKeyProperty = 'customer';
+    expect(trafienia(o).has('P83')).toBe(true);
+    /* strona powrotna — klucz po stronie `to` przy `ONE_TO_MANY` */
+    const r = zKluczem();
+    r.linkTypes[0] = { ...r.linkTypes[0], from: 'Customer', to: 'Invoice', cardinality: 'ONE_TO_MANY', apiName: 'invoices', reverseName: 'customer' };
+    r.objectTypes[0].properties.find((p) => p.apiName === 'customerId').apiName = 'customer';
+    r.linkTypes[0].foreignKeyProperty = 'customer';
+    expect(trafienia(r).has('P83'), 'kolizja z nazwą POWROTNĄ').toBe(true);
   });
 });

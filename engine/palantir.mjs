@@ -44,7 +44,14 @@
  * kategorii, zmieniony próg — czyli wszystko, co może przesunąć czyjś wynik. Poprawka
  * literówki w uzasadnieniu NIE jest zmianą wersji.
  */
-export const WERSJA = '1.9';
+export const WERSJA = '2.0';
+/* ⚠ 2.0 = 1.9 + `P82`/`P83` + poprawiony `P86` (25.09.2026). Po 1.9 idzie 2.0, nie 1.10 — numer
+   ma dwie liczby i idzie co 0,1:
+   • `P82`: klucz obcy krawędzi z końcem „jeden” nie jest właściwością typu po stronie
+     „wiele” albo ma typ inny niż klucz główny celu (`docs:3915`, `docs:3923`);
+   • `P83`: nazwa klucza obcego = nazwa strony linku na tym samym typie (`docs:3962`);
+   • `P86` poprawiony: tabelą łączącą N:M jest `joinTable` ALBO `backingObjectType` (patrz nota reguły);
+   • `P11`/`P27` nie liczą kolumn kluczy obcych (ich metadane centralizuje klucz główny celu). */
 /* ⚠ 1.6 = 1.5 + K10. Numery są kolejnością ZESTAWÓW, nie scaleń: 1.4 wziął K5c (typ wartości jako
    użycie), 1.5 — K9 (`P15` forma zapisu czasu, `P20` mnogość), 1.6 — K10 (kanon w kształcie Foundry:
    nazwy API, typy bazowe, `valueSource`, akcja oparta o funkcję, wiązka do kontraktu, kryteria natywne,
@@ -57,7 +64,7 @@ export const WERSJA = '1.9';
    obcego (głębokość `derived.via`, typ współdzielony na ≤1 typie, N:M bez tabeli łączącej, delete
    deklaratywny bez referencji/z kaskadą, wiele obiektów z listy w akcji deklaratywnej, akcja na
    interfejsie spoza kontraktu) domyka tę lukę. `P82`/`P83` (FK jako właściwość, nazwa FK kolidująca
-   ze stroną linku) zostają ZAREZERWOWANE dla dwóch reguł klucza obcego, które przychodzą osobnym zestawem. */
+   ze stroną linku) zostają ZAREZERWOWANE dla dwóch reguł klucza obcego (weszły w 2.0, patrz wyżej). */
 
 /**
  * CEL PRZYJĘCIA ZNACZĄCY „TEN MODEL JAKO CAŁOŚĆ” (od zestawu 1.3).
@@ -768,6 +775,12 @@ export function ocen(o) {
            dokładnie ta centralizacja, o którą prosi reguła; żądać obok niej jeszcze typu
            współdzielonego znaczyłoby żądać dwóch centrali na jedno pole.
 
+       (3) KLUCZ OBCY (od zestawu 2.0). Kolumna klucza obcego przechowuje WARTOŚĆ
+           KLUCZA GŁÓWNEGO drugiego typu (`docs:3915`) i musi mieć jego typ (`docs:3923`) — jej
+           metadane centralizuje więc klucz główny celu, a `machineId` na sześciu typach to sześć
+           krawędzi do typu `Machine`, a nie sześć kopii jednej wielkości. Typ współdzielony byłby
+           tu drugą centralą obok klucza głównego.
+
      ⚠ CO ZOSTAJE: pole powtórzone na trzech typach, które NIE jest kluczem i NIE wynika
      z żadnego kontraktu — czyli zbieżność, za którą nie stoi ani jedna deklaracja. */
   {
@@ -793,6 +806,12 @@ export function ocen(o) {
           dodajKontrakt(ob.apiName, kontrakt);
           dodajKontrakt(ob.apiName, typeof wlasne === 'string' ? wlasne : '');
         }
+      }
+    }
+    /* (3) kolumny kluczy obcych krawędzi — patrz baner wyżej */
+    for (const l of linki) {
+      for (const kol of [s(l.foreignKeyProperty), s(l.foreignKeyTypeProperty)]) {
+        if (kol && kol !== '?') dodajKontrakt(s(l.foreignKeyObjectType), kol);
       }
     }
     /* Interfejs potrafi wymienić implementatorów u siebie — wtedy obiekt o tym milczy. */
@@ -2277,9 +2296,15 @@ export function ocen(o) {
     });
   }
 
-  /* P27 · rodzina pól o wspólnym prefiksie prosi się o strukturę */
+  /* P27 · rodzina pól o wspólnym prefiksie prosi się o strukturę
+     ⚠ OD ZESTAWU 2.0 BEZ KOLUMN KLUCZY OBCYCH: np. `toolKindCode` i `colorCode` na jednym typie
+     to nie rodzina atrybutów jednego pojęcia, tylko kilka krawędzi do różnych katalogów —
+     wspólny wyraz `Code` pochodzi z nazw kluczy głównych celów (`docs:3915`), a struktura niczego
+     by tu nie zebrała: każda kolumna wskazuje inny typ. */
+  const kolumnyObce = new Set(linki.flatMap((l) => [s(l.foreignKeyProperty), s(l.foreignKeyTypeProperty)]
+    .filter((x) => x && x !== '?').map((x) => `${s(l.foreignKeyObjectType)}.${x}`)));
   for (const ob of obiekty) {
-    const props = t(ob.properties);
+    const props = t(ob.properties).filter((p) => !kolumnyObce.has(`${ob.apiName}.${s(p.apiName)}`));
     const rodziny = new Map();
     for (let i = 0; i < props.length; i += 1) {
       for (let j = i + 1; j < props.length; j += 1) {
@@ -2580,6 +2605,84 @@ export function ocen(o) {
           + 'status („if a foreign key is deprecated, link types that reference that foreign key '
           + 'should also be deprecated”, docs:4597)',
       });
+    }
+  }
+
+  /* ════════════════════════════════════════════════════════════════════════════════════════
+     P82 · KLUCZ OBCY KRAWĘDZI NIE JEST WŁAŚCIWOŚCIĄ ALBO MA INNY TYP NIŻ KLUCZ GŁÓWNY CELU
+     P83 · NAZWA KLUCZA OBCEGO = NAZWA STRONY LINKU NA TYM SAMYM TYPIE
+
+     „A **foreign key** is a property on one object type that stores the value of another object
+     type's primary key… In a one-to-one or many-to-one cardinality link type, you will define the
+     foreign key property and primary key properties for the link” (`docs:3915`) — klucz obcy JEST
+     właściwością, a nie metadaną linku. Kreator wiąże go z kluczem głównym tylko wtedy, gdy „the
+     property types of both objects match” (`docs:3923`). Strona linku jest członkiem obiektu
+     (`Flight.assignedAircraft.get()`, `docs:3962`), więc właściwość o tej samej nazwie daje
+     dwuznaczny członek.
+     ⚠ KRAWĘDŹ `N:M` JEST POZA REGUŁĄ — tam relację niesie tabela łącząca (`docs:4917`). Krawędź
+     `1:1` bez wyliczalnej strony (`foreignKeyObjectType` puste) też — strony nie da się zgadnąć, a
+     reguła nie orzeka o tym, czego kanon nie powiedział.
+     ⚠ PRZY CELU-KONTRAKCIE kanon ma krawędź już rozbitą na konkretne (wiązka), więc drugi koniec
+     jest typem obiektu, a kolumna typu (`foreignKeyTypeProperty`) musi być właściwością tak samo.
+     ════════════════════════════════════════════════════════════════════════════════════════ */
+  {
+    const obiektPo = new Map(obiekty.map((ob) => [ob.apiName, ob]));
+    const wlasciwosc = (typ, nazwa) => t(obiektPo.get(typ)?.properties).find((p) => s(p.apiName) === nazwa);
+    const typKlucza = (typ) => {
+      const ob = obiektPo.get(typ);
+      const k = Array.isArray(ob?.primaryKey) ? (ob.primaryKey.length === 1 ? ob.primaryKey[0] : undefined) : ob?.primaryKey;
+      return k ? s(wlasciwosc(typ, s(k))?.type) : undefined;
+    };
+    const strony = new Map();
+    for (const l of linki) {
+      for (const n of [s(l.apiName), s(l.bundleApiName)].filter(Boolean)) strony.set(`${s(l.from)}.${n}`, s(l.apiName));
+      if (s(l.reverseName)) strony.set(`${s(l.to)}.${s(l.reverseName)}`, s(l.apiName));
+    }
+    const widziane = new Set();
+    for (const l of linki) {
+      if (!['MANY_TO_ONE', 'ONE_TO_MANY', 'ONE_TO_ONE'].includes(l.cardinality)) continue;
+      const typ = s(l.foreignKeyObjectType);
+      if (!typ) continue;
+      const cel = typ === s(l.from) ? s(l.to) : s(l.from);
+      const kolumna = s(l.foreignKeyProperty);
+      const p = kolumna && kolumna !== '?' ? wlasciwosc(typ, kolumna) : undefined;
+      const oczek = typKlucza(cel);
+      const typKol = s(l.foreignKeyTypeProperty);
+      const pTyp = typKol ? wlasciwosc(typ, typKol) : undefined;
+      regula(Boolean(p) && (!oczek || s(p.type) === oczek) && (!typKol || Boolean(pTyp)), {
+        id: 'P82', klasa: 'zlamanie', kategoria: 'relacje',
+        co: !kolumna || kolumna === '?'
+          ? `krawędź \`${l.apiName}\` (${l.cardinality}) nie ma klucza obcego — nie wskazuje właściwości na \`${typ}\``
+          : (!p ? `klucz obcy \`${typ}.${kolumna}\` krawędzi \`${l.apiName}\` nie jest właściwością tego typu`
+            : (typKol && !pTyp ? `kolumna typu \`${typ}.${typKol}\` krawędzi \`${l.apiName}\` nie jest właściwością tego typu`
+              : `klucz obcy \`${typ}.${kolumna}\` ma typ \`${s(p.type)}\`, a klucz główny \`${cel}\` — \`${oczek}\``)),
+        gdzie: `linkTypes[${l.apiName}].foreignKeyProperty`,
+        dlaczego: 'Krawędź z końcem „jeden” NIE MA u Foundry własnego bytu — jest WŁAŚCIWOŚCIĄ po stronie '
+          + '„wiele”, przechowującą klucz główny drugiego typu. Bez tej właściwości (albo z innym typem niż '
+          + 'klucz główny) Ontology Manager nie zbuduje link type, a akcja nie ma czego przestawić regułą '
+          + 'Modify object (docs:4919).',
+        jak: 'Dodaj właściwość klucza obcego do typu po stronie „wiele” — z typem klucza głównego celu — '
+          + 'i wskaż ją w krawędzi; przy celu-kontrakcie także kolumnę typu implementatora.',
+        zrodlo: 'Link types → Foreign key relationship („A foreign key is a property on one object type that '
+          + 'stores the value of another object type\'s primary key”, docs:3915; „the property types of both '
+          + 'objects match”, docs:3923)',
+      });
+      for (const kol of [kolumna, typKol].filter((x) => x && x !== '?')) {
+        const klucz = `${typ}.${kol}`;
+        if (widziane.has(klucz)) continue;
+        widziane.add(klucz);
+        regula(!strony.has(klucz), {
+          id: 'P83', klasa: 'zlamanie', kategoria: 'nazewnictwo',
+          co: `klucz obcy \`${klucz}\` nazywa się tak samo jak strona linku \`${strony.get(klucz)}\` na tym typie`,
+          gdzie: `objectTypes[${typ}].properties[${kol}]`,
+          dlaczego: 'Strona linku jest członkiem obiektu (`Flight.assignedAircraft.get()`) — właściwość o '
+            + 'tej samej nazwie daje dwa członki pod jedną nazwą: raz wartość klucza, raz obiekt po drugiej '
+            + 'stronie. Czytający kod nie wie, które dostanie.',
+          jak: 'Przemianuj właściwość klucza obcego: rola + cel + sufiks klucza głównego (`assignedMachineId`, '
+            + '`viewId`), a nazwę strony zostaw linkowi.',
+          zrodlo: 'Link types → Search Around w OSDK („Flight.assignedAircraft.get()”, docs:3962)',
+        });
+      }
     }
   }
 
@@ -3216,8 +3319,13 @@ export function ocen(o) {
      ⚠ LICZY SIĘ KAŻDA AKCJA, TAKŻE OPARTA O FUNKCJĘ: wymóg backing datasource jest wymogiem
      PLATFORMY na SAMYM LINKU, nie na kształcie reguły, która go rusza — funkcja edycji piszącą
      na link N:M bez tabeli łączącej rozbija się o to samo ograniczenie, co reguła deklaratywna.
-     ⚠ „TABELA ŁĄCZĄCA" = `backingObjectType`: reguła nie zakłada nowego pola kanonu — pyta
-     tylko, czy to, które kanon już niesie, stoi.
+     ⚠ TABELA ŁĄCZĄCA = `joinTable` ALBO `backingObjectType` (od zestawu 2.0). Do 1.9 reguła
+     pytała WYŁĄCZNIE o `backingObjectType`. `joinTable` w kanonie (`"generate"` albo
+     `{dataset, fromColumn, toColumn}`) to dokładnie „Join table dataset relationship type”
+     z opcją „Generate join table” (`docs:3934–3944`). `backingObjectType` to CO INNEGO: link
+     oparty o TYP OBIEKTU (obiekt pośredni, `P50`), też niosący własne zaplecze. Reguła
+     przepuszcza oba — pyta, czy N:M edytowany akcją MA backing datasource, a nie, którym
+     z dwóch kształtów go zadeklarowano.
      ⚠ KRAWĘDŹ ROZBITA Z INTERFEJSU NIESIE `bundleApiName` — I EDYCJA CELUJE W NIEGO, NIE
      W KONKRETNĄ: gdy link N:M celował pierwotnie w interfejs (`resources` → kontrakt
      `Allocatable`), konwerter do kanonu rozbija go na PO JEDNEJ krawędzi na implementatora
@@ -3229,7 +3337,7 @@ export function ocen(o) {
      zostaje jako druga gałąź na wypadek linku, który nigdy nie stał w interfejsie.
      ──────────────────────────────────────────────────────────────────────────────────────── */
   for (const l of linki) {
-    if (l.cardinality !== 'MANY_TO_MANY' || s(l.backingObjectType)) continue;
+    if (l.cardinality !== 'MANY_TO_MANY' || s(l.backingObjectType) || l.joinTable) continue;
     const celeEdycji = new Set([s(l.apiName), s(l.bundleApiName)].filter(Boolean));
     const edytujace = akcje.filter((a) => edycjeAkcji(a).some((e) =>
       ['createLink', 'deleteLink', 'link', 'unlink'].includes(s(e.op)) && celeEdycji.has(s(e.target))));
@@ -3242,7 +3350,7 @@ export function ocen(o) {
       dlaczego: 'Platforma czyta i zapisuje N:M WYŁĄCZNIE przez tabelę łączącą — bez niej link '
         + 'jest tylko do odczytu z rury. Akcja, która deklaruje edycję takiego linku, opisuje '
         + 'gest, którego Ontology Manager nie da się skonfigurować.',
-      jak: 'Dodaj `backingObjectType` (wygenerowaną albo wskazaną tabelę join) — albo, jeśli '
+      jak: 'Dodaj tabelę łączącą `joinTable` (wygenerowaną albo wskazany dataset) — albo, jeśli '
         + 'relacja niesie własne fakty, zamień link na obiekt pośredni (patrz `P30`/`P50`).',
       zrodlo: 'Create a link type → Define link resources → Join table dataset relationship type '
         + '("A many-to-many cardinality, which requires a backing datasource, is required to '
@@ -3639,6 +3747,8 @@ export const REGULY = [
   ['P79', 'dokumentacja', 'zlamanie', 'typ bez nazwy wyświetlanej albo bez nazwy w liczbie mnogiej'],
   ['P80', 'dokumentacja', 'zlamanie', 'strona linku bez nazwy wyświetlanej'],
   ['P81', 'cykl-zycia', 'zlamanie', 'krawędź stoi na wygaszanym kluczu obcym, a sama jest żywa'],
+  ['P82', 'relacje', 'zlamanie', 'klucz obcy krawędzi nie jest właściwością albo ma typ inny niż klucz główny celu'],
+  ['P83', 'nazewnictwo', 'zlamanie', 'nazwa klucza obcego = nazwa strony linku na tym samym typie'],
   ['P84', 'wlasciwosci', 'zlamanie', 'głębokość `derived.via` większa niż 3 — Foundry unosi najwyżej 3 poziomy'],
   ['P85', 'abstrakcja', 'podpowiedz', 'typ współdzielony użyty na ≤1 typie obiektu'],
   ['P86', 'relacje', 'zlamanie', 'N:M edytowany akcją bez tabeli łączącej (backingObjectType)'],

@@ -91,8 +91,8 @@ akcja, `Typ.pole`) albo `*` dla znaleziska o zasięgu całego modelu.
 
 ## Zestaw reguł
 
-Numer stoi w jednym miejscu: `WERSJA` w [`engine/palantir.mjs`](engine/palantir.mjs) (dziś **1.9**,
-87 reguł). Idzie co 0,1 i podbija się **zawsze, gdy czyjś wynik może się przesunąć**: nowa albo
+Numer stoi w jednym miejscu: `WERSJA` w [`engine/palantir.mjs`](engine/palantir.mjs) (dziś **2.0**,
+89 reguł). Idzie co 0,1 i podbija się **zawsze, gdy czyjś wynik może się przesunąć**: nowa albo
 skasowana reguła, zmieniony koszt, budżet albo próg. Literówki w uzasadnieniu numeru nie ruszają.
 
 Każda reguła ma stałe id (`P01`…) i **obowiązkowy cytat** z dokumentacji Palantir Foundry

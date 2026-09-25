@@ -254,6 +254,11 @@ function zFoundry(m) {
     /* ⚠ Model zapisany po Foundry'emu ma gdzie to powiedzieć — i wtedy mówi (docs:3953). */
     backingObjectType: napis(poleSnake(l, 'backingObjectType', 'backing_object_type',
       'objectBackedBy', 'object_backed_by', 'intermediaryObjectType')),
+    /* ⚠ TABELA ŁĄCZĄCA N:M (od zestawu 2.0) — „Join table dataset relationship type” z opcją
+       „Generate join table” (`docs:3934–3944`): `"generate"` albo `{dataset, fromColumn, toColumn}`.
+       Kanon oddaje ją bez rozbioru — inaczej niż `backingObjectType`, które jest NAZWĄ TYPU,
+       a nie tabelą. Czyta ją `P86`. */
+    joinTable: poleSnake(l, 'joinTable', 'join_table') ?? undefined,
     description: opis(l.description, l.note),
     status: napis(l.status ?? l.lifecycle),
   }));
