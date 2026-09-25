@@ -90,6 +90,13 @@ objectTypes:
         type: timestamp
         required: true
         description: Kiedy zwalnia zasób.
+      # ⚠ DRUGI KONSUMENT ErpCode — po to jest `sharedPropertyTypes`, a nie zwykła właściwość:
+      # metadane ERP-owego kodu żyją w JEDNYM miejscu i obsługują OBA typy naraz.
+      - apiName: erpTaskCode
+        type: string
+        required: false
+        description: Kod tego kroku w systemie ERP klienta — ten sam katalog kodów co zlecenie.
+        sharedPropertyType: ErpCode
 
 # ── LINKI ─────────────────────────────────────────────────────────────────────────────────
 linkTypes:
@@ -211,7 +218,7 @@ sharedPropertyTypes:
   - apiName: ErpCode
     type: string
     description: Klucz nadawany przez system ERP klienta.
-    usedBy: [Order.orderId]           # opis dla człowieka; referencję robi `sharedPropertyType`
+    usedBy: [Order.orderId, Task.erpTaskCode]   # opis dla człowieka; referencję robi `sharedPropertyType`
 
 # ── TYPY Z REPOZYTORIUM KODU FUNKCJI ──────────────────────────────────────────────────────
 #

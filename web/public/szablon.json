@@ -90,6 +90,13 @@
           "type": "timestamp",
           "required": true,
           "description": "Kiedy zwalnia zasób."
+        },
+        {
+          "apiName": "erpTaskCode",
+          "type": "string",
+          "required": false,
+          "description": "Kod tego kroku w systemie ERP klienta — ten sam katalog kodów co zlecenie.",
+          "sharedPropertyType": "ErpCode"
         }
       ]
     }
@@ -260,7 +267,8 @@
       "type": "string",
       "description": "Klucz nadawany przez system ERP klienta.",
       "usedBy": [
-        "Order.orderId"
+        "Order.orderId",
+        "Task.erpTaskCode"
       ]
     }
   ],

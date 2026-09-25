@@ -291,7 +291,7 @@ describe('silnik 1.2 — znalezisko przyjęte z powodem', () => {
     expect(r.znaleziska.some((x) => x.id === 'P01'), 'znalezisko o konkretnym wpisie zniknęło').toBe(true);
   });
 
-  it('numer zestawu reguł podbity — zestaw 1.8 bada rzeczy, których 1.3 nie badał (1.4–1.7 scalone w nim)', () => {
+  it('numer zestawu reguł podbity — zestaw 1.9 bada rzeczy, których 1.3 nie badał (1.4–1.8 scalone w nim)', () => {
     /* ⚠ 1.4 (3.0 · K5c, D10b): silnik nauczył się TYPU WARTOŚCI. Do 1.3 widział wyłącznie napis
        typu i `sharedPropertyType`, więc typ wskazany polem `valueType` był NIEWIDZIALNY — wypadał
        jako sierota (`P46`), choć kanon bierze go wprost. Przy okazji `P44` przestało dotyczyć
@@ -317,8 +317,15 @@ describe('silnik 1.2 — znalezisko przyjęte z powodem', () => {
        Numer idzie w górę, bo dwa ZŁAMANIA przestają zapalać się CZYJEMUŚ modelowi, a nie tylko
        naszemu; przy okazji domknięcie typów idzie także po `valueType`, więc `P44`/`P46` widzą
        typ wartości brany WYŁĄCZNIE przez pola struktury. */
-    expect(WERSJA).toBe('1.8');
-    for (const id of ['P55', 'P56', 'P57', 'P58', 'P64', 'P66', 'P72', 'P73', 'P75', 'P77', 'P79', 'P81'])
+    /* ⚠ 1.9 (25.09.2026): sześć reguł niezależnych od klucza obcego (`P84`–`P89`: głębokość
+       `derived.via`, typ współdzielony na ≤1 typie, N:M bez tabeli łączącej, delete deklaratywny
+       bez referencji/z kaskadą, wiele obiektów z listy w akcji deklaratywnej, akcja na interfejsie
+       spoza kontraktu). Do 1.8 model łamiący te zasady dostawał 100/100 WYŁĄCZNIE dlatego, że
+       zestaw nie miał o nich reguł — cisza narzędzia, nie zgodność modelu. `P82`/`P83` są
+       ZAREZERWOWANE dla dwóch reguł klucza obcego, które przychodzą osobnym zestawem. */
+    expect(WERSJA).toBe('1.9');
+    for (const id of ['P55', 'P56', 'P57', 'P58', 'P64', 'P66', 'P72', 'P73', 'P75', 'P77', 'P79', 'P81',
+      'P84', 'P85', 'P86', 'P87', 'P88', 'P89'])
       expect(REGULY.map((r) => r.id), `${id} nie stoi w spisie reguł — narzędzie bada coś, o czym nie mówi`).toContain(id);
   });
 });
@@ -3402,5 +3409,271 @@ describe('A14 · P40 — rdzeń wrażliwy na granicy wyrazu', () => {
   it('TRAFIA dalej po angielsku — poprawka NIE dotknęła dłuższych rdzeni', () => {
     for (const n of ['unitPrice', 'totalCost', 'emailAddress', 'apiToken', 'salaryBand'])
       expect(zPolem(n).has('P40'), n).toBe(true);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   P84–P89 · SZEŚĆ REGUŁ NIEZALEŻNYCH OD KLUCZA OBCEGO (zestaw 1.9)
+   ──────────────────────────────────────────────────────────────────────────────────────────
+   ⚠ FIKSTURY IDĄ W KANONIE WPROST (jak `czysta()`), nie przez `normalizuj()` — bo pytamy
+   o SILNIK, nie o tłumaczenie formatu; `normalizuj.mjs` ma swoje własne testy.
+   ⚠ KAŻDA REGUŁA MA TU DWIE RZECZY: fikstura, która ją łamie (KRZYCZY), i fikstura czysta
+   (MILCZY). Trafienia na prawdziwej ontologii projektu liczy repozytorium, które ją trzyma.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('P84 · głębokość derived.via > 3 (docs:3344)', () => {
+  const zGlebokoscia = (n) => {
+    const o = czysta();
+    o.objectTypes[0].properties.push({
+      apiName: 'chainDepth', type: 'string',
+      description: 'Test głębokości trawersacji przez n linków.',
+      derived: { via: Array.from({ length: n }, (_, i) => `hop${i}`) },
+    });
+    return trafienia(o);
+  };
+
+  it('MILCZY na właściwości bez `derived` w ogóle', () => {
+    expect(trafienia(czysta()).has('P84')).toBe(false);
+  });
+
+  it('MILCZY na 3 poziomach — to jest GRANICA Foundry, nie złamanie', () => {
+    expect(zGlebokoscia(3).has('P84')).toBe(false);
+  });
+
+  it('KRZYCZY na 4 poziomach — Foundry unosi najwyżej 3', () => {
+    expect(zGlebokoscia(4).has('P84')).toBe(true);
+  });
+});
+
+describe('P85 · typ współdzielony użyty na ≤1 typie obiektu (docs:3680, docs:3814)', () => {
+  const zeWspolnym = (usedBy) => {
+    const o = czysta();
+    o.sharedPropertyTypes = [{ apiName: 'ErpCode', type: 'string', description: 'Kod ERP.', usedBy }];
+    return trafienia(o);
+  };
+
+  it('KRZYCZY (podpowiedzią), gdy `usedBy` nie wskazuje ŻADNEGO realnego typu obiektu', () => {
+    expect(zeWspolnym(['jakasAkcja.parametr']).has('P85')).toBe(true);
+  });
+
+  it('KRZYCZY, gdy `usedBy` wskazuje DOKŁADNIE 1 typ obiektu', () => {
+    expect(zeWspolnym(['Invoice.invoiceId']).has('P85')).toBe(true);
+  });
+
+  it('MILCZY, gdy `usedBy` wskazuje 2 różne typy obiektów', () => {
+    expect(zeWspolnym(['Invoice.invoiceId', 'Customer.customerId']).has('P85')).toBe(false);
+  });
+
+  it('⚠ JEST KLASY `podpowiedz` — nie kosztuje ani jednego punktu wyniku', () => {
+    const o = czysta();
+    /* ⚠ WŁAŚCIWOŚĆ MUSI NAPRAWDĘ WSKAZYWAĆ TYP (nie tylko `usedBy` jako opis dla człowieka) —
+       inaczej fikstura zapala DRUGĄ regułę („typ nie jest właściwością niczego”) i test mierzy
+       koszt dwóch znalezisk naraz, nie jednego. */
+    o.objectTypes[0].properties[0].sharedPropertyType = 'ErpCode';
+    o.sharedPropertyTypes = [{ apiName: 'ErpCode', type: 'string', description: 'Kod ERP.', usedBy: ['Invoice.invoiceId'] }];
+    const r = ocen(o);
+    expect(r.znaleziska.filter((z) => z.id === 'P85').length).toBe(1);
+    expect(r.wynik).toBe(100);
+  });
+
+  it('⚠ MILCZY NA WEJŚCIU KSZTAŁTU FOUNDRY BEZ `usedBy` — referencją jest `sharedPropertyType` '
+    + 'na właściwości, `usedBy` jest tylko opisem dla człowieka (wejście bez `usedBy` dawało '
+    + 'fałszywe „0 typów”, choć dwie właściwości go używały)', () => {
+    const o = czysta();
+    o.objectTypes[0].properties[0].sharedPropertyType = 'ErpCode';
+    o.objectTypes[1].properties[0].sharedPropertyType = 'ErpCode';
+    o.sharedPropertyTypes = [{ apiName: 'ErpCode', type: 'string', description: 'Kod ERP.' }];   // brak `usedBy`
+    expect(trafienia(o).has('P85')).toBe(false);
+  });
+
+  it('⚠ KRZYCZY DALEJ NA WEJŚCIU BEZ `usedBy`, gdy `sharedPropertyType` wskazuje TYLKO JEDNĄ '
+    + 'właściwość', () => {
+    const o = czysta();
+    o.objectTypes[0].properties[0].sharedPropertyType = 'ErpCode';
+    o.sharedPropertyTypes = [{ apiName: 'ErpCode', type: 'string', description: 'Kod ERP.' }];
+    expect(trafienia(o).has('P85')).toBe(true);
+  });
+
+  it('⚠ SUMA BEZ DUPLIKATÓW: `usedBy` i `sharedPropertyType` wskazujące TEN SAM typ liczą się '
+    + 'RAZ, nie dwa razy', () => {
+    const o = czysta();
+    o.objectTypes[0].properties[0].sharedPropertyType = 'ErpCode';
+    o.sharedPropertyTypes = [{ apiName: 'ErpCode', type: 'string', description: 'Kod ERP.', usedBy: ['Invoice.invoiceId'] }];
+    expect(trafienia(o).has('P85')).toBe(true);   // dalej tylko JEDEN typ (Invoice) — nie 2
+  });
+
+  it('⚠ SZABLON PUBLICZNY BEZ `usedBy` MILCZY — `ErpCode` wskazują dwie właściwości', () => {
+    const d = JSON.parse(czytaj('web/public/szablon.json'));
+    for (const w of d.sharedPropertyTypes) delete w.usedBy;
+    expect(ocen(normalizuj(d)).znaleziska.filter((z) => z.id === 'P85')).toEqual([]);
+  });
+});
+
+describe('P86 · N:M edytowany akcją bez tabeli łączącej (docs:3938)', () => {
+  const zLinkiem = (backingObjectType, edytujaca, funkcyjna) => {
+    const o = czysta();
+    o.linkTypes.push({
+      apiName: 'tags', from: 'Invoice', to: 'Customer', cardinality: 'MANY_TO_MANY',
+      reverseName: 'invoices2', status: 'active', displayName: 'Tag', reverseDisplayName: 'Faktury',
+      description: 'Relacja testowa N:M.', backingObjectType,
+    });
+    if (edytujaca) {
+      o.actionTypes.push({
+        apiName: 'tagInvoice', description: 'Test.', status: 'active', parameters: [],
+        rules: funkcyjna
+          ? [{ op: 'runFunction', functionApiName: 'tagInvoice' }]
+          : [{ op: 'createLink', target: 'tags' }],
+        declaredEdits: [{ op: 'createLink', target: 'tags' }],
+      });
+    }
+    return trafienia(o);
+  };
+
+  it('MILCZY, gdy nikt linku nie edytuje', () => {
+    expect(zLinkiem(undefined, false).has('P86')).toBe(false);
+  });
+
+  it('KRZYCZY, gdy akcja DEKLARATYWNA edytuje N:M bez `backingObjectType`', () => {
+    expect(zLinkiem(undefined, true, false).has('P86')).toBe(true);
+  });
+
+  it('KRZYCZY TAKŻE na akcji OPARTEJ O FUNKCJĘ — wymóg tabeli łączącej jest wymogiem platformy '
+    + 'na samym linku, nie na kształcie reguły', () => {
+    expect(zLinkiem(undefined, true, true).has('P86')).toBe(true);
+  });
+
+  it('MILCZY, gdy link ma `backingObjectType`', () => {
+    expect(zLinkiem('InvoiceTag', true, false).has('P86')).toBe(false);
+  });
+});
+
+describe('P87 · delete deklaratywny bez referencji do obiektu albo z kaskadą (docs:5233, docs:4925)', () => {
+  const zAkcja = (parametry, edycje) => {
+    const o = czysta();
+    o.actionTypes.push({
+      apiName: 'removeInvoice', description: 'Test.', status: 'active',
+      parameters: parametry, rules: edycje, declaredEdits: edycje,
+    });
+    return trafienia(o);
+  };
+
+  it('KRZYCZY, gdy parametr jest stringiem, nie referencją obiektu', () => {
+    expect(zAkcja(
+      [{ apiName: 'invoiceId', type: 'string' }],
+      [{ op: 'delete', target: 'Invoice' }],
+    ).has('P87')).toBe(true);
+  });
+
+  it('MILCZY, gdy parametr jest referencją TEGO typu', () => {
+    expect(zAkcja(
+      [{ apiName: 'invoice', type: 'reference', reference: { kind: 'objectReference', objectTypeApiName: 'Invoice' } }],
+      [{ op: 'delete', target: 'Invoice' }],
+    ).has('P87')).toBe(false);
+  });
+
+  it('KRZYCZY na kaskadzie — kasuje `Customer` bez WŁASNEJ referencji do `Customer`', () => {
+    expect(zAkcja(
+      [{ apiName: 'invoice', type: 'reference', reference: { kind: 'objectReference', objectTypeApiName: 'Invoice' } }],
+      [{ op: 'delete', target: 'Invoice' }, { op: 'delete', target: 'Customer' }],
+    ).has('P87')).toBe(true);
+  });
+
+  it('MILCZY na akcji OPARTEJ O FUNKCJĘ — `Run function` unosi kaskadę sama', () => {
+    const o = czysta();
+    o.actionTypes.push({
+      apiName: 'removeInvoiceFn', description: 'Test.', status: 'active',
+      parameters: [{ apiName: 'id', type: 'string' }],
+      rules: [{ op: 'runFunction', functionApiName: 'removeInvoiceFn' }],
+      declaredEdits: [{ op: 'delete', target: 'Invoice' }, { op: 'delete', target: 'Customer' }],
+    });
+    expect(trafienia(o).has('P87')).toBe(false);
+  });
+
+  it('MILCZY na wzorcu „zastąp kolekcję listą" (P88 łapie to zjawisko, nie ta reguła)', () => {
+    expect(zAkcja(
+      [{ apiName: 'linie', baseType: 'Array', elementBaseType: 'Struct', elementStructTypeApiName: 'InvoiceLineInput' }],
+      [{ op: 'create', target: 'Customer' }, { op: 'delete', target: 'Customer' }],
+    ).has('P87')).toBe(false);
+  });
+});
+
+describe('P88 · wiele obiektów jednego typu z listy w akcji deklaratywnej (docs:5264, docs:5845)', () => {
+  const zAkcja = (parametry, edycje) => {
+    const o = czysta();
+    o.actionTypes.push({
+      apiName: 'saveInvoiceLines', description: 'Test.', status: 'active',
+      parameters: parametry, rules: edycje, declaredEdits: edycje,
+    });
+    return trafienia(o);
+  };
+
+  it('KRZYCZY, gdy akcja deklaratywna TWORZY obiekt i ma parametr `list(struct(...))`', () => {
+    expect(zAkcja(
+      [{ apiName: 'lines', baseType: 'Array', elementBaseType: 'Struct', elementStructTypeApiName: 'InvoiceLineInput' }],
+      [{ op: 'create', target: 'Invoice' }],
+    ).has('P88')).toBe(true);
+  });
+
+  it('MILCZY, gdy akcja ma parametr listy struktur, ale nie TWORZY żadnego obiektu', () => {
+    expect(zAkcja(
+      [{ apiName: 'lines', baseType: 'Array', elementBaseType: 'Struct', elementStructTypeApiName: 'InvoiceLineInput' }],
+      [{ op: 'modify', target: 'Invoice.invoiceNumber' }],
+    ).has('P88')).toBe(false);
+  });
+
+  it('MILCZY, gdy lista jest `list(ref(...))`, nie `list(struct(...))` — Foundry WPROST dopuszcza '
+    + 'tworzenie obiektu razem z jego linkami N:M w jednej akcji (docs:4925)', () => {
+    expect(zAkcja(
+      [{ apiName: 'refs', baseType: 'Array', reference: { kind: 'objectReference', objectTypeApiName: 'Customer', multiple: true } }],
+      [{ op: 'create', target: 'Invoice' }],
+    ).has('P88')).toBe(false);
+  });
+
+  it('MILCZY na akcji OPARTEJ O FUNKCJĘ', () => {
+    const o = czysta();
+    o.actionTypes.push({
+      apiName: 'saveInvoiceLinesFn', description: 'Test.', status: 'active',
+      parameters: [{ apiName: 'lines', baseType: 'Array', elementBaseType: 'Struct', elementStructTypeApiName: 'InvoiceLineInput' }],
+      rules: [{ op: 'runFunction', functionApiName: 'saveInvoiceLinesFn' }],
+      declaredEdits: [{ op: 'create', target: 'Invoice' }],
+    });
+    expect(trafienia(o).has('P88')).toBe(false);
+  });
+});
+
+describe('P89 · akcja na interfejsie zmienia właściwość spoza kontraktu (docs:5688)', () => {
+  const zAkcja = (nazwaPola) => {
+    const o = czysta();
+    o.interfaces = [{ apiName: 'Billable', properties: [{ apiName: 'dueDate' }] }];
+    o.objectTypes[0].implements = ['Billable'];
+    o.actionTypes.push({
+      apiName: 'setInvoiceField', description: 'Test.', status: 'active',
+      parameters: [{
+        apiName: 'targets', type: 'list',
+        reference: { kind: 'interfaceReference', interfaceApiName: 'Billable', multiple: true },
+      }],
+      rules: [{
+        op: 'modify', target: `Invoice.${nazwaPola}`,
+        targetField: { kind: 'objectProperty', objectType: 'Invoice', property: nazwaPola },
+      }],
+    });
+    return trafienia(o);
+  };
+
+  it('MILCZY, gdy edytowane pole JEST w kontrakcie interfejsu', () => {
+    expect(zAkcja('dueDate').has('P89')).toBe(false);
+  });
+
+  it('KRZYCZY, gdy edytowane pole jest specyficzne dla typu — spoza kontraktu', () => {
+    expect(zAkcja('invoiceNumber').has('P89')).toBe(true);
+  });
+
+  it('MILCZY, gdy akcja nie bierze żadnego parametru przez interfejs', () => {
+    const o = czysta();
+    o.actionTypes[0].rules = [{
+      op: 'modify', target: 'Invoice.invoiceNumber',
+      targetField: { kind: 'objectProperty', objectType: 'Invoice', property: 'invoiceNumber' },
+    }];
+    expect(trafienia(o).has('P89')).toBe(false);
   });
 });

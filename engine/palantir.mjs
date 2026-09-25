@@ -44,14 +44,20 @@
  * kategorii, zmieniony próg — czyli wszystko, co może przesunąć czyjś wynik. Poprawka
  * literówki w uzasadnieniu NIE jest zmianą wersji.
  */
-export const WERSJA = '1.8';
+export const WERSJA = '1.9';
 /* ⚠ 1.6 = 1.5 + K10. Numery są kolejnością ZESTAWÓW, nie scaleń: 1.4 wziął K5c (typ wartości jako
    użycie), 1.5 — K9 (`P15` forma zapisu czasu, `P20` mnogość), 1.6 — K10 (kanon w kształcie Foundry:
    nazwy API, typy bazowe, `valueSource`, akcja oparta o funkcję, wiązka do kontraktu, kryteria natywne,
    type classes, metadane, statusy). Na własnej gałęzi K10 skakał 1.3 → 1.6 z pominięciem 1.4 i 1.5, bo
    tamte klastry szły RÓWNOLEGLE; po scaleniu (17.09.2026) zestaw 1.6 ZAWIERA wszystkie trzy. Integrator
    sprawdza przy scaleniu, że każdy numer istnieje raz i że żaden raport nie powstał na numerze, który
-   po drodze zmienił znaczenie. */
+   po drodze zmienił znaczenie.
+   ⚠ 1.9 = 1.8 + `P84`–`P89` (25.09.2026). Audyt zgodności z Foundry pokazał, że 100/100 na
+   kilku wzorcach nie do zbudowania był ciszą narzędzia, nie zgodnością modelu — sześć reguł niezależnych od klucza
+   obcego (głębokość `derived.via`, typ współdzielony na ≤1 typie, N:M bez tabeli łączącej, delete
+   deklaratywny bez referencji/z kaskadą, wiele obiektów z listy w akcji deklaratywnej, akcja na
+   interfejsie spoza kontraktu) domyka tę lukę. `P82`/`P83` (FK jako właściwość, nazwa FK kolidująca
+   ze stroną linku) zostają ZAREZERWOWANE dla dwóch reguł klucza obcego, które przychodzą osobnym zestawem. */
 
 /**
  * CEL PRZYJĘCIA ZNACZĄCY „TEN MODEL JAKO CAŁOŚĆ” (od zestawu 1.3).
@@ -3092,6 +3098,304 @@ export function ocen(o) {
   }
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════
+     P84–P89 · SZEŚĆ REGUŁ NIEZALEŻNYCH OD KLUCZA OBCEGO (zestaw 1.9)
+
+     ⚠ SKĄD TEN NUMER. Audyt zgodności z Foundry pokazał, że silnik dawał 100/100 na kilku
+     wzorcach, których Ontology Manager nie zbuduje, WYŁĄCZNIE dlatego, że NIE MIAŁ o nich
+     reguł — cisza narzędzia, nie zgodność modelu. Rekomendacja audytu: 8 reguł. SZEŚĆ z nich
+     nie potrzebuje klucza obcego i stoją tu; DWIE pozostałe (FK jako właściwość krawędzi,
+     nazwa FK kolidująca ze stroną linku na tym samym typie) dostaną `P82`/`P83`, zarezerwowane
+     i celowo NIE użyte w tym pliku.
+
+     ⚠ WYNIK MODELU, KTÓRY WPADA W TE WZORCE, SPADA PO TEJ ZMIANIE — I TAK MA BYĆ. Zestaw reguł,
+     który wcześniej milczał, teraz mówi. Naprawia się MODEL (albo przyjmuje ryzyko z powodem),
+     a nie ten plik ma udawać, że problemu nie ma.
+     ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /** Akcja oparta o `Run function` — to samo rozpoznanie co przy P73/P74/P76/P77, powtórzone
+   *  tu jawnie, bo tamto jest zamknięte w innym bloku i wypada ze scope'u. */
+  const opartaOFunkcjeP8x = (a) => t(a.rules).some((r) => s(r.op) === 'runFunction');
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P84 · GŁĘBOKOŚĆ `derived.via` > 3 — Foundry unosi TRZY poziomy, nie więcej
+
+     „Derived properties support traversing up to **3 levels** of linked objects” (`docs:3344`)
+     jest granicą PLATFORMY, nie zaleceniem wydajnościowym — Ontology Manager nie skonfiguruje
+     czwartego skoku wprost. Ścieżka DOKŁADNIE 3-poziomowa mieści się i reguła jej nie rusza.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  for (const { ob, p } of wszystkieWlasciwosci) {
+    if (!p.derived) continue;
+    const via = t(p.derived.via).map(s).filter(Boolean);
+    regula(via.length <= 3, {
+      id: 'P84', klasa: 'zlamanie', kategoria: 'wlasciwosci',
+      co: `\`${ob.apiName}.${s(p.apiName)}\` przechodzi przez ${via.length} linków `
+        + `(\`${via.join(' → ')}\`) — Foundry unosi najwyżej 3`,
+      gdzie: `objectTypes[${ob.apiName}].properties[${s(p.apiName)}].derived.via`,
+      dlaczego: 'Właściwość pochodna trawersuje krawędzie w CZASIE ZAPYTANIA — każdy dodatkowy '
+        + 'poziom jest kolejnym złączeniem, a platforma dokumentuje TWARDY sufit tej trawersacji, '
+        + 'nie zalecenie wydajnościowe. Ścieżka dłuższa niż 3 poziomy jest kształtem, którego '
+        + 'Ontology Manager nie skonfiguruje.',
+      jak: 'Skróć ścieżkę: policz pośredni krok osobną właściwością pochodną na typie bliżej '
+        + 'źródła i zbuduj na niej kolejną — albo policz wartość w rurze/funkcji, jeśli czwarty '
+        + 'poziom jest naprawdę potrzebny.',
+      zrodlo: 'Configure Derived Properties → Multi-hop Derived Properties ("Derived properties '
+        + 'support traversing up to **3 levels** of linked objects", docs:3344)',
+    });
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P85 · TYP WSPÓŁDZIELONY UŻYTY NA ≤1 TYPIE OBIEKTU — PODPOWIEDŹ, NIE ZŁAMANIE
+
+     ⚠ „Shared property” istnieje po to, żeby scentralizować metadane WSPÓLNE kilku typom
+     (`docs:3680`). Platforma trzyma nawet osobną kolumnę „Usage" tylko po to, żeby dało się
+     zadać to pytanie: „Usage: The object types on which a shared property is used… by the
+     `Employee`, `Contractor`, and other object types" (`docs:3814`) — kanon niesie ją wprost
+     jako `usedBy` — pole, które kanon niesie z definicji przy każdym typie współdzielonym.
+     ⚠ KLASA `podpowiedz`, NIE `zlamanie`: audyt (A5) mówi to wprost — „większość to enumy
+     i struktury polityki, które Foundry i tak wyraziłby inaczej" — czyli bywa uzasadnione
+     (typ scentralizowany na zapas dla przyszłego drugiego konsumenta, konfiguracja jednego
+     obiektu rozbita na kilka pól dla czytelności). Reguła WSKAZUJE kandydata, nie orzeka.
+     ⚠ LICZYMY TYPY OBIEKTÓW, NIE WSZYSTKIE WPISY `usedBy`: ścieżka akcji (`jakasAkcja.kolumny`)
+     albo funkcji (`jakasFunkcja.polityka`) nie jest „obiektem, na którym property jest w użyciu" —
+     dokładnie to mówi cytat wyżej. Typ użyty WYŁĄCZNIE wewnątrz innego typu współdzielonego
+     (zagnieżdżenie struktury w strukturze) liczy się więc jako 0 typów obiektów, nie 1 —
+     dziedziczenie przynależności robi już `P44`/`P46`, ta reguła pyta o coś innego.
+     ⚠⚠ DWA ŹRÓDŁA PRAWDY O UŻYCIU, SUMOWANE BEZ DUPLIKATÓW. `usedBy` jest opisem DLA CZŁOWIEKA (ten sam status co `note` — kanon go
+     niesie, bo niektóre formaty go piszą, ale nic go nie wymusza), a REFERENCJĄ, którą Foundry
+     naprawdę rozwiązuje, jest `property.sharedPropertyType` na każdym typie obiektu — to jest
+     odpowiednik kolumny „Usage" w kanonie kształtu FOUNDRY wprost, bez pośrednictwa żadnego
+     opisowego pola. Wejście, które nie pisze `usedBy` w ogóle (np. każdy model zapisany po
+     Foundry'emu), dawało PRZED TĄ POPRAWKĄ fałszywe „0 typów" dla typu, którego
+     UŻYWAJĄ dwie właściwości — silnik pytał o opis, a miał pytać o referencję. Liczymy więc
+     SUMĘ mnogościową obu źródeł: `usedBy` DOKŁADA typy, których referencja `sharedPropertyType`
+     z jakiegoś powodu nie niesie (np. użycie w kontrakcie akcji poza zwykłą właściwością obiektu,
+     które ta reguła i tak odrzuca niżej), a bezpośrednie `sharedPropertyType` NIE ZNIKA, gdy
+     `usedBy` milczy albo się z nim rozjeżdża.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  {
+    const nazwyObiektow = new Set(obiekty.map((ob) => s(ob.apiName)));
+    for (const w of wspolne) {
+      const zUsedBy = t(w.usedBy).map((sciezka) => {
+        const i = s(sciezka).lastIndexOf('.');
+        return i > 0 ? s(sciezka).slice(0, i) : '';
+      }).filter((prefiks) => nazwyObiektow.has(prefiks));
+      const zWlasciwosci = wszystkieWlasciwosci
+        .filter(({ p }) => s(p.sharedPropertyType) === s(w.apiName))
+        .map(({ ob }) => s(ob.apiName));
+      const typyObiektow = new Set([...zUsedBy, ...zWlasciwosci]);
+      regula(typyObiektow.size >= 2, {
+        id: 'P85', klasa: 'podpowiedz', kategoria: 'abstrakcja',
+        co: typyObiektow.size === 0
+          ? `\`${w.apiName}\` nie jest w użyciu na ŻADNYM typie obiektu (ani jedna właściwość `
+            + 'nie wskazuje go przez `sharedPropertyType`, a `usedBy` niesie co najwyżej ścieżki '
+            + 'akcji/funkcji albo inne typy współdzielone)'
+          : `\`${w.apiName}\` jest w użyciu na JEDNYM typie obiektu (\`${[...typyObiektow][0]}\`)`,
+        gdzie: `sharedPropertyTypes[${w.apiName}].usedBy · objectTypes[*].properties[*].sharedPropertyType`,
+        dlaczego: 'Typ współdzielony istnieje po to, żeby scentralizować metadane WSPÓLNE kilku '
+          + 'typom obiektów — platforma pokazuje przy nim kolumnę „Usage" z listą tych typów. '
+          + 'Typ użyty na jednym typie (albo na żadnym) nie centralizuje niczego: jest zwykłą '
+          + 'właściwością udającą zasób współdzielony, kosztem osobnego wpisu w rejestrze typów.',
+        jak: 'Jeśli drugi konsument jest planowany — zostaw i zapisz to w opisie typu. Jeśli nie '
+          + '— przenieś z powrotem na zwykłą właściwość obiektu, którego dotyczy.',
+        zrodlo: 'Shared Properties → Overview ("A shared property is a property that can be used '
+          + 'on multiple object types in your ontology", docs:3680) + Metadata reference '
+          + '("Usage: The object types on which a shared property is used… by the `Employee`, '
+          + '`Contractor`, and other object types", docs:3814)',
+      });
+    }
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P86 · N:M EDYTOWANY AKCJĄ BEZ TABELI ŁĄCZĄCEJ
+
+     ⚠ Edycja N:M wymaga backing datasource — to nie jest nasza opinia, to warunek platformy:
+     „A many-to-many cardinality, which requires a backing datasource, is required to enable
+     users to edit or write back to the link type" (`docs:3938`). Kanon niesie tę tabelę jako
+     `backingObjectType` — to samo pole, którego `P50` już używa, żeby odróżnić GOŁY link N:M
+     od takiego, co ma za sobą obiekt.
+     ⚠ LICZY SIĘ KAŻDA AKCJA, TAKŻE OPARTA O FUNKCJĘ: wymóg backing datasource jest wymogiem
+     PLATFORMY na SAMYM LINKU, nie na kształcie reguły, która go rusza — funkcja edycji piszącą
+     na link N:M bez tabeli łączącej rozbija się o to samo ograniczenie, co reguła deklaratywna.
+     ⚠ „TABELA ŁĄCZĄCA" = `backingObjectType`: reguła nie zakłada nowego pola kanonu — pyta
+     tylko, czy to, które kanon już niesie, stoi.
+     ⚠ KRAWĘDŹ ROZBITA Z INTERFEJSU NIESIE `bundleApiName` — I EDYCJA CELUJE W NIEGO, NIE
+     W KONKRETNĄ: gdy link N:M celował pierwotnie w interfejs (`resources` → kontrakt
+     `Allocatable`), konwerter do kanonu rozbija go na PO JEDNEJ krawędzi na implementatora
+     (`resourcesMachine`, `resourcesTool`, `resourcesPerson`), ale akcja, która go edytuje,
+     dalej nazywa cel WIĄZKĄ (`target: 'resources'`) — bo tak nazwał go gest, zanim
+     ktokolwiek wiedział, KTÓRY implementator dziś stoi przy zadaniu.
+     Dopasowanie WYŁĄCZNIE po `apiName` przeoczyłoby to jako „nikt nie edytuje” i dałoby
+     fałszywe zero. `bundleApiName === l.apiName` łapie oryginalną krawędź; gołe `l.apiName`
+     zostaje jako druga gałąź na wypadek linku, który nigdy nie stał w interfejsie.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  for (const l of linki) {
+    if (l.cardinality !== 'MANY_TO_MANY' || s(l.backingObjectType)) continue;
+    const celeEdycji = new Set([s(l.apiName), s(l.bundleApiName)].filter(Boolean));
+    const edytujace = akcje.filter((a) => edycjeAkcji(a).some((e) =>
+      ['createLink', 'deleteLink', 'link', 'unlink'].includes(s(e.op)) && celeEdycji.has(s(e.target))));
+    regula(edytujace.length === 0, {
+      id: 'P86', klasa: 'zlamanie', kategoria: 'relacje',
+      co: `\`${l.apiName}\` (${l.from} ↔ ${l.to}) jest N:M BEZ tabeli łączącej, a edytuje go `
+        + `${edytujace.length} akcj${edytujace.length === 1 ? 'a' : 'e'}: `
+        + `${edytujace.map((a) => `\`${a.apiName}\``).join(', ')}`,
+      gdzie: `linkTypes[${l.apiName}].backingObjectType`,
+      dlaczego: 'Platforma czyta i zapisuje N:M WYŁĄCZNIE przez tabelę łączącą — bez niej link '
+        + 'jest tylko do odczytu z rury. Akcja, która deklaruje edycję takiego linku, opisuje '
+        + 'gest, którego Ontology Manager nie da się skonfigurować.',
+      jak: 'Dodaj `backingObjectType` (wygenerowaną albo wskazaną tabelę join) — albo, jeśli '
+        + 'relacja niesie własne fakty, zamień link na obiekt pośredni (patrz `P30`/`P50`).',
+      zrodlo: 'Create a link type → Define link resources → Join table dataset relationship type '
+        + '("A many-to-many cardinality, which requires a backing datasource, is required to '
+        + 'enable users to edit or write back to the link type", docs:3938)',
+    });
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P87 · DELETE DEKLARATYWNY BEZ REFERENCJI DO OBIEKTU ALBO Z KASKADĄ
+
+     ⚠ Reguła `Delete object(s)` bierze tożsamość z PARAMETRU REFERENCJI, nie z dowolnego pola:
+     „Delete object(s): Can be used to delete an existing object whose primary key is derived
+     from object reference parameters" (`docs:5233`, punkt 4). Akcja deklaratywna, która kasuje
+     typ T bez PARAMETRU `ref(T)`, opisuje regułę, której Ontology Manager nie zbuduje — string
+     albo enum nie jest referencją obiektu, choćby niósł tę samą wartość co klucz główny.
+     ⚠ DRUGA POŁOWA TEJ SAMEJ WADY: kasowanie OBIEKTÓW POWIĄZANYCH (inny typ niż ten
+     z parametru) jest KASKADĄ, a Foundry stawia to wprost po drugiej stronie tej samej reguły:
+     „Consider backing the action with an Ontology edit function when you want to modify every
+     object linked to the one the user selected" (`docs:4925`). Oba zjawiska dają ten sam
+     warunek silnika: kasowany typ bez WŁASNEGO `ref(T)` w parametrach akcji.
+     ⚠ WYJĄTEK NAZWANY, ŻEBY NIE LICZYĆ PODWÓJNIE: gdy akcja ZASTĘPUJE całą kolekcję typu T
+     listą ze struct-parametru (usuwa starą, tworzy nową z `list(struct(...))`), wada jest
+     `P88`, nie ta — przyczyna jest inna (brak deklaratywnej pętli „jeden obiekt na wiersz
+     listy", nie brak referencji), więc ta reguła milczy na TYM konkretnym celu.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  for (const a of akcje) {
+    if (opartaOFunkcjeP8x(a)) continue;
+    const edycje = edycjeAkcji(a);
+    const usuniecia = edycje.filter((e) => s(e.op) === 'delete');
+    if (usuniecia.length === 0) continue;
+    const celeUsuniete = [...new Set(usuniecia.map((e) => typZCelu(e.target)))];
+    const celeTworzone = new Set(edycje.filter((e) => s(e.op) === 'create').map((e) => typZCelu(e.target)));
+    const maParametrListyStruct = t(a.parameters).some((p) => p.baseType === 'Array' && s(p.elementStructTypeApiName));
+    const referencjeObiektow = new Set(t(a.parameters)
+      .filter((p) => p.reference?.kind === 'objectReference' && !p.reference.multiple)
+      .map((p) => s(p.reference.objectTypeApiName)));
+    const zle = celeUsuniete.filter((cel) => !referencjeObiektow.has(cel)
+      && !(maParametrListyStruct && celeTworzone.has(cel)));
+    regula(zle.length === 0, {
+      id: 'P87', klasa: 'zlamanie', kategoria: 'akcje',
+      co: `\`${a.apiName}\` kasuje deklaratywnie ${zle.map((c) => `\`${c}\``).join(', ')} bez `
+        + 'parametru `ref(…)` wskazującego TEN typ',
+      gdzie: `actionTypes[${a.apiName}].parameters`,
+      dlaczego: 'Reguła `Delete object(s)` bierze tożsamość kasowanego obiektu z PARAMETRU '
+        + 'REFERENCJI — string, enum albo liczba nie są referencją, choćby niosły wartość klucza '
+        + 'głównego. Gdy kasowany typ jest INNY niż ten, który akcja dostała parametrem, '
+        + 'kasowanie jest kaskadą na obiektach powiązanych, a to platforma prosi robić funkcją.',
+      jak: 'Dodaj parametr `ref(T)` dla każdego kasowanego typu — albo, jeśli kasowanie jest '
+        + 'skutkiem ubocznym kasowania innego obiektu (kaskada), przepisz akcję na `Run function`.',
+      zrodlo: 'Rules → Ontology rules ("Delete object(s): Can be used to delete an existing '
+        + 'object whose primary key is derived from object reference parameters", docs:5233) '
+        + '+ Explore other action types → Run custom logic with a function ("Consider backing '
+        + 'the action with an Ontology edit function when you want to modify every object linked '
+        + 'to the one the user selected", docs:4925)',
+    });
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P88 · WIELE OBIEKTÓW JEDNEGO TYPU Z LISTY W AKCJI DEKLARATYWNEJ
+
+     ⚠ Struct-parametr zasila JEDNĄ właściwość struct, nie pętlę obiektów: „A struct property
+     can only be created or modified through a single struct parameter" (`docs:5845`) —
+     deklaratywne reguły nie mają kształtu „jeden obiekt na wiersz listy". Akcja, która bierze
+     `list(struct(...))` i ma choć jedną edycję `create`, opisuje pętlę tworzenia, której
+     Ontology Manager nie skonfiguruje: reguły kompilują się do JEDNEJ edycji na obiekt
+     (`docs:5264`), a lista nie jest obiektem referencyjnym, więc nie ma na czym oprzeć
+     „drugi, trzeci, n-ty" `Create object`.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  for (const a of akcje) {
+    if (opartaOFunkcjeP8x(a)) continue;
+    const parametryListyStruct = t(a.parameters).filter((p) => p.baseType === 'Array' && s(p.elementStructTypeApiName));
+    if (parametryListyStruct.length === 0) continue;
+    const tworzenia = edycjeAkcji(a).filter((e) => s(e.op) === 'create');
+    regula(tworzenia.length === 0, {
+      id: 'P88', klasa: 'zlamanie', kategoria: 'akcje',
+      co: `\`${a.apiName}\` tworzy obiekty (${tworzenia.map((e) => `\`${typZCelu(e.target)}\``).join(', ')}) `
+        + `z parametru listy struktur ${parametryListyStruct.map((p) => `\`${p.apiName}\``).join(', ')} `
+        + '— deklaratywnie, bez funkcji',
+      gdzie: `actionTypes[${a.apiName}].parameters`,
+      dlaczego: 'Reguła deklaratywna `Create object` tworzy JEDEN obiekt na regułę; struct-parametr '
+        + 'zasila jedną właściwość struct, a nie pętlę tworzenia. Model, który liczy „jeden wiersz '
+        + 'listy = jeden nowy obiekt", opisuje zachowanie, którego Ontology Manager nie zbuduje.',
+      jak: 'Przepisz akcję na `Run function` — funkcja edycji dostaje listę jako zwykły parametr '
+        + 'i sama pętluje tworzenie, dokładnie tak, jak dziś robi to kod.',
+      zrodlo: 'Rules → Ontology rules → Invalid combinations ("the actions backend compiles rules '
+        + 'to generate a single edit per object", docs:5264) + Actions on Structs → Limitations '
+        + '("A struct property can only be created or modified through a single struct parameter", '
+        + 'docs:5845)',
+    });
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────────────────────
+     P89 · AKCJA NA INTERFEJSIE ZMIENIA WŁAŚCIWOŚĆ SPOZA KONTRAKTU INTERFEJSU
+
+     ⚠ Reguła interfejsu rusza WYŁĄCZNIE wspólne właściwości albo kasuje — bez furtki: „you can
+     use interface action rules only to modify the interface shared properties or to delete
+     objects" (`docs:5688`). Akcja, która bierze parametr PRZEZ INTERFEJS (referencja do
+     DOWOLNEGO implementatora) i edytuje pole na konkretnym typie, którego NIE MA w kontrakcie
+     interfejsu, opisuje regułę spoza tego, co Ontology Manager unosi dla akcji na interfejsie.
+     ⚠ „NA INTERFEJSIE" ROZPOZNAJEMY PO PARAMETRZE, NIE PO OSOBNEJ DEKLARACJI: kanon nie niesie
+     dziś pola „ta akcja jest skonfigurowana jako akcja na interfejsie" wprost, ale referencja
+     interfejsowa w parametrze (`ref(Interfejs)`) I edycja pola na typie, który ten interfejs
+     IMPLEMENTUJE, jest dokładnie tym kształtem — inaczej parametr nie miałby czym rozstrzygnąć,
+     NA KTÓRYM z implementatorów pole stoi.
+     ⚠ AKCJA OPARTA O FUNKCJĘ JEST WYŁĄCZONA — I TO NIE JEST TA SAMA WYJĄTKOWOŚĆ CO PRZY `P86`.
+     Tu ograniczenie z `docs:5688` opisuje jeden KONKRETNY typ reguły Ontology Managera
+     („interface action rules” — `Create/Modify/Delete object(s) of interface”, `docs:5233`
+     punkty 8–10): platforma stosuje TĘ REGUŁĘ identycznie do każdego implementatora, więc rusza
+     wyłącznie kontrakt. Akcja `Run function` NIE JEST TĄ REGUŁĄ — jest kodem, któremu wolno
+     przyjąć referencję interfejsową jako zwykły parametr i w środku rozstrzygnąć property po
+     property. Bez tego wyjątku reguła fałszywie oskarżałaby każdą akcję funkcyjną, która bierze
+     obiekt przez kontrakt i pisze pola konkretnego typu (np. pozycję w kolejce, godzinę startu)
+     spoza kontraktu — a funkcja i tak nie jest „regułą interfejsu”.
+     ──────────────────────────────────────────────────────────────────────────────────────── */
+  for (const a of akcje) {
+    if (opartaOFunkcjeP8x(a)) continue;
+    const interfejsyParametrow = [...new Set(t(a.parameters)
+      .map((p) => p.reference).filter((r) => r?.kind === 'interfaceReference')
+      .map((r) => s(r.interfaceApiName)))];
+    if (interfejsyParametrow.length === 0) continue;
+    const kontraktPo = new Map(interfejsyParametrow.map((nazwa) => [nazwa,
+      new Set(t(interfejsy.find((i) => i.apiName === nazwa)?.properties).map((p) => s(p.apiName)))]));
+    const implementuje = (typObiektu, nazwaInterfejsu) => obiekty
+      .some((ob) => s(ob.apiName) === s(typObiektu) && t(ob.implements).map(s).includes(nazwaInterfejsu));
+    const zle = [];
+    for (const e of edycjeAkcji(a)) {
+      if (s(e.op) !== 'modify') continue;
+      const pole = e.targetField;
+      if (!pole || pole.kind !== 'objectProperty') continue;
+      for (const nazwaIfc of interfejsyParametrow) {
+        if (!implementuje(pole.objectType, nazwaIfc)) continue;
+        if (!kontraktPo.get(nazwaIfc).has(s(pole.property))) {
+          zle.push(`${pole.objectType}.${pole.property} (spoza kontraktu ${nazwaIfc})`);
+        }
+      }
+    }
+    regula(zle.length === 0, {
+      id: 'P89', klasa: 'zlamanie', kategoria: 'akcje',
+      co: `\`${a.apiName}\` bierze parametr przez interfejs i edytuje: ${zle.join(', ')}`,
+      gdzie: `actionTypes[${a.apiName}].declaredEdits`,
+      dlaczego: 'Akcja skonfigurowana na interfejsie rusza WYŁĄCZNIE właściwości z jego kontraktu '
+        + '— to jest cały sens jednej reguły dla wielu typów naraz: platforma stosuje ją IDENTYCZNIE '
+        + 'do każdego implementatora, więc nie ma jak dopuścić pola, które jeden implementator ma, '
+        + 'a inny nie. Pole spoza kontraktu jest dokładnie takim polem — specyficznym dla typu.',
+      jak: 'Dodaj pole do kontraktu interfejsu, jeśli naprawdę ma je KAŻDY implementator — albo '
+        + 'rozbij akcję na osobne akcje per typ konkretny, jeśli pole jest specyficzne.',
+      zrodlo: 'Actions on interfaces → Using action on interface rules ("you can use interface '
+        + 'action rules only to modify the interface shared properties or to delete objects", '
+        + 'docs:5688)',
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════
      ZNALEZISKA PRZYJĘTE Z POWODEM (od zestawu 1.2)
      ══════════════════════════════════════════════════════════════════════════════════════════
 
@@ -3335,4 +3639,10 @@ export const REGULY = [
   ['P79', 'dokumentacja', 'zlamanie', 'typ bez nazwy wyświetlanej albo bez nazwy w liczbie mnogiej'],
   ['P80', 'dokumentacja', 'zlamanie', 'strona linku bez nazwy wyświetlanej'],
   ['P81', 'cykl-zycia', 'zlamanie', 'krawędź stoi na wygaszanym kluczu obcym, a sama jest żywa'],
+  ['P84', 'wlasciwosci', 'zlamanie', 'głębokość `derived.via` większa niż 3 — Foundry unosi najwyżej 3 poziomy'],
+  ['P85', 'abstrakcja', 'podpowiedz', 'typ współdzielony użyty na ≤1 typie obiektu'],
+  ['P86', 'relacje', 'zlamanie', 'N:M edytowany akcją bez tabeli łączącej (backingObjectType)'],
+  ['P87', 'akcje', 'zlamanie', 'delete deklaratywny bez referencji do obiektu albo z kaskadą na obiektach powiązanych'],
+  ['P88', 'akcje', 'zlamanie', 'wiele obiektów jednego typu tworzonych z listy w akcji deklaratywnej'],
+  ['P89', 'akcje', 'zlamanie', 'akcja na interfejsie zmienia właściwość spoza kontraktu interfejsu'],
 ].map(([id, kategoria, klasa, opis]) => ({ id, kategoria, klasa, opis }));
