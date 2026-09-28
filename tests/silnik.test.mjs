@@ -327,7 +327,7 @@ describe('silnik 1.2 — znalezisko przyjęte z powodem', () => {
        typ ≠ typ klucza głównego celu, `docs:3915`, `docs:3923`), `P83` (nazwa klucza obcego = nazwa
        strony linku, `docs:3962`), `P86` przepuszcza tabelę łączącą `joinTable` (`docs:3934–3944`),
        a `P11`/`P27` przestają liczyć kolumny kluczy obcych. */
-    expect(WERSJA).toBe('2.0');
+    expect(WERSJA).toBe('2.1');
     for (const id of ['P55', 'P56', 'P57', 'P58', 'P64', 'P66', 'P72', 'P73', 'P75', 'P77', 'P79', 'P81',
       'P82', 'P83', 'P84', 'P85', 'P86', 'P87', 'P88', 'P89'])
       expect(REGULY.map((r) => r.id), `${id} nie stoi w spisie reguł — narzędzie bada coś, o czym nie mówi`).toContain(id);
@@ -3215,6 +3215,12 @@ describe('K10-7 · type classes planowania', () => {
     expect(zKlasami(undefined, K, 'startTime').has('P78'), 'właściwość nie ma klasy (docs:32721)').toBe(true);
     expect(zKlasami(K, undefined, 'startTime').has('P78'), 'parametr bez klasy — reguła pyta o PARAMETR').toBe(false);
     expect(zKlasami(K, 'schedules:schedulable-end-time', 'startTime').has('P78'), 'ta sama nazwa, inna klasa').toBe(true);
+  });
+
+  it('P78 · klasa WYŁĄCZNIE akcji (`actions:generate_uuid`, `docs:4410`) NIE żąda pary — zestaw 2.1', () => {
+    expect(zKlasami(undefined, 'actions:generate_uuid', 'id').has('P78'), 'klucz nowego wiersza z UUID — klasa nie ma strony właściwości').toBe(false);
+    expect(zKlasami(undefined, 'actions:prefill_current_user', 'authorId').has('P78'), 'bieżący użytkownik (`docs:4411`) — też tylko akcja').toBe(false);
+    expect(zKlasami(undefined, 'schedules:schedulable-start-time', 'startTime').has('P78'), 'klasa w parze dalej łapie brak pary').toBe(true);
   });
 });
 

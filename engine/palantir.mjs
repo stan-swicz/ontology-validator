@@ -44,7 +44,11 @@
  * kategorii, zmieniony próg — czyli wszystko, co może przesunąć czyjś wynik. Poprawka
  * literówki w uzasadnieniu NIE jest zmianą wersji.
  */
-export const WERSJA = '2.0';
+export const WERSJA = '2.1';
+/* ⚠ 2.1 = 2.0 + poprawiony `P78` (28.09.2026): para „parametr ↔ właściwość o tej samej nazwie i klasie” jest
+   wymagana WYŁĄCZNIE dla klas, które Foundry listuje po obu stronach (`schedules:*` start/koniec,
+   `docs:4456–4460`, `docs:32721`); klasy tylko akcji (`actions:generate_uuid`, `docs:4410`) nie mają pary.
+   Na modelach bez klas akcji 2.1 daje ten sam wynik co 2.0. */
 /* ⚠ 2.0 = 1.9 + `P82`/`P83` + poprawiony `P86` (25.09.2026). Po 1.9 idzie 2.0, nie 1.10 — numer
    ma dwie liczby i idzie co 0,1:
    • `P82`: klucz obcy krawędzi z końcem „jeden” nie jest właściwością typu po stronie
@@ -1665,6 +1669,14 @@ export function ocen(o) {
        a nie `pinnedStart`, `startAt` ani `startMin`.
        ══════════════════════════════════════════════════════════════════════════════════════ */
     {
+      /* ⚠ 2.1 (28.09.2026): PARA JEST WYMAGANA WYŁĄCZNIE DLA KLAS, KTÓRE FOUNDRY LISTUJE PO OBU STRONACH.
+         Tabela type classes (`docs:4410–4460`) ma klasy WŁAŚCIWOŚCI, klasy AKCJI i te, które stoją w obu
+         kolumnach — i tylko przy tych ostatnich platforma żąda pary po nazwie
+         (`schedules:schedulable-start-time` / `-end-time`: `docs:4456–4460`, `docs:32720–32721`). Klasy
+         WYŁĄCZNIE akcji — `actions:generate_uuid` („Replaces a string parameter with a UUID”, `docs:4410`),
+         `actions:prefill_current_user` (`docs:4411`) — nie mają strony właściwości, więc żądanie pary było
+         FAŁSZYWYM ALARMEM reguły. Do 2.0 reguła żądała pary dla KAŻDEJ klasy parametru. */
+      const KLASY_W_PARZE = new Set(['schedules:schedulable-start-time', 'schedules:schedulable-end-time']);
       const wlasciwoscZKlasa = new Map();
       for (const { ob, p } of wszystkieWlasciwosci) {
         for (const k of t(p.typeClasses)) {
@@ -1676,6 +1688,7 @@ export function ocen(o) {
       const bezPary = [];
       for (const p of t(a.parameters)) {
         for (const k of t(p.typeClasses)) {
+          if (!KLASY_W_PARZE.has(s(k))) continue;
           if (!wlasciwoscZKlasa.has(`${s(p.apiName)}→${s(k)}`)) bezPary.push(`\`${s(p.apiName)}\` (\`${s(k)}\`)`);
         }
       }
